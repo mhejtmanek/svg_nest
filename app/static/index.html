@@ -305,6 +305,8 @@ const I18N = {
     color: { black: 'černá', gray: 'šedá', white: 'bílá', brown: 'hnědá', red: 'červená', orange: 'oranžová', yellow: 'žlutá',
              green: 'zelená', cyan: 'azurová', blue: 'modrá', violet: 'fialová', magenta: 'purpurová' },
     'warn.orphans': '{count} čar/výplní leží mimo jakýkoli díl a byly vynechány',
+    'err.too_many_files': 'Příliš mnoho souborů najednou – nahrajte je po menších dávkách', 'err.too_large': 'Soubor je příliš velký (limit {detail} MB)',
+    'err.too_many_parts': 'Dosažen limit počtu dílů ({detail}) – smažte některé díly', 'err.too_many_pieces': 'Příliš mnoho kusů v jednom výpočtu – snižte počty kusů',
     'err.invalid_svg': 'Neplatné SVG: {detail}', 'err.invalid_dxf': 'Neplatné DXF: {detail}',
     'err.unsupported': 'Podporované jsou pouze soubory .svg a .dxf',
     'err.no_shape': 'V souboru nebyl nalezen žádný uzavřený řezaný tvar',
@@ -351,6 +353,8 @@ const I18N = {
     color: { black: 'black', gray: 'gray', white: 'white', brown: 'brown', red: 'red', orange: 'orange', yellow: 'yellow',
              green: 'green', cyan: 'cyan', blue: 'blue', violet: 'violet', magenta: 'magenta' },
     'warn.orphans': '{count} lines/fills lie outside any part and were skipped',
+    'err.too_many_files': 'Too many files at once – upload them in smaller batches', 'err.too_large': 'File is too large (limit {detail} MB)',
+    'err.too_many_parts': 'Part limit reached ({detail}) – remove some parts', 'err.too_many_pieces': 'Too many pieces in one run – lower the quantities',
     'err.invalid_svg': 'Invalid SVG: {detail}', 'err.invalid_dxf': 'Invalid DXF: {detail}',
     'err.unsupported': 'Only .svg and .dxf files are supported',
     'err.no_shape': 'No closed cut shape was found in the file',
@@ -475,7 +479,11 @@ function nesting() {
         const fd = new FormData();
         files.forEach(f => fd.append('files', f));
         const r = await fetch('/api/upload', { method: 'POST', body: fd });
-        if (!r.ok) throw new Error(r.status);
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          this.errors = [{ file: '', code: typeof body.detail === 'string' ? body.detail : 'server', detail: String(r.status) }];
+          return;
+        }
         const data = await r.json();
         data.files.forEach(f => {
           f.parts.forEach(p => { p.quantity = 1; this.parts.push(p); });

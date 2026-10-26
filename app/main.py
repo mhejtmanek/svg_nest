@@ -21,6 +21,21 @@ from .parser import (ParseError, Parsed, Part, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNO
                      parse_file, place_part, polygon_path_d, sheet_to_dxf, sheet_to_svg)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+# Limits protect a shared instance; raise them with environment variables for private use.
+MAX_UPLOAD_FILES = _env_int("NEST_MAX_UPLOAD_FILES", 100)        # files in one upload request
+MAX_FILE_BYTES = _env_int("NEST_MAX_FILE_MB", 50) * 1024 * 1024  # size of one file
+MAX_PARTS_PER_SESSION = _env_int("NEST_MAX_PARTS", 2000)         # distinct parts kept per visitor
+MAX_PIECES_PER_RUN = _env_int("NEST_MAX_PIECES", 5000)           # parts times quantity in one nesting run
+MAX_SHEET_ROWS = 20
 MAX_JOBS = 20                 # kept per session
 SESSION_COOKIE = "nest_sid"
 SESSION_TTL = 6 * 3600        # idle seconds before a session (and its uploads) is dropped
@@ -155,10 +170,21 @@ def file_json(src: SourceFile, parts: list[Part], warnings: list[dict]) -> dict:
 
 @app.post("/api/upload")
 def upload(files: list[UploadFile] = File(...), sess: Session = Depends(get_session)):
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(400, "too_many_files")
     added, errors = [], []
     for f in files:
+        data = f.file.read(MAX_FILE_BYTES + 1)
+        if len(data) > MAX_FILE_BYTES:
+            errors.append({"file": f.filename, "code": "too_large", "detail": str(MAX_FILE_BYTES // (1024 * 1024))})
+            continue
+        with sess.lock:
+            stored = len(sess.parts)
+        if stored >= MAX_PARTS_PER_SESSION:
+            errors.append({"file": f.filename, "code": "too_many_parts", "detail": str(MAX_PARTS_PER_SESSION)})
+            continue
         try:
-            src = SourceFile(f.filename or "", parse_file(f.filename or "", f.file.read()))
+            src = SourceFile(f.filename or "", parse_file(f.filename or "", data))
             parts, warnings = _rebuild(src, {})
         except ParseError as exc:
             errors.append({"file": f.filename, "code": exc.code, "detail": exc.detail})
@@ -226,7 +252,7 @@ class SheetRequest(BaseModel):
 
 class NestRequest(BaseModel):
     parts: list[PartRequest]
-    sheets: list[SheetRequest] = Field(min_length=1)
+    sheets: list[SheetRequest] = Field(min_length=1, max_length=MAX_SHEET_ROWS)
     spacing: float = Field(default=1.5, ge=0, le=100)
     margin: float = Field(default=5.0, ge=0, le=1000)
     rotation_step: int = 0
@@ -267,6 +293,8 @@ def start_nest(req: NestRequest, sess: Session = Depends(get_session)):
         selected = [(sess.parts[p.id], p.quantity) for p in req.parts if p.id in sess.parts and p.quantity > 0]
     if not selected:
         raise HTTPException(400, "no_parts")
+    if sum(qty for _, qty in selected) > MAX_PIECES_PER_RUN:
+        raise HTTPException(400, "too_many_pieces")
 
     job = Job({p.id: p for p, _ in selected})
     sheets = [SheetSpec(s.width, s.height, None if s.auto else s.quantity) for s in req.sheets]

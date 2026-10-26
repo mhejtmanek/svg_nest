@@ -2,6 +2,8 @@
 
 A self-hosted web app that packs irregular 2D parts from **SVG and DXF** files onto sheets of material, built for laser cutters and CNC machines. Parts are packed by their **real outline**, not their bounding box, so small parts drop into the holes and gaps of bigger ones. It keeps **cut** and **engrave** geometry apart, understands **offcuts and sheets of different sizes**, and exports clean vector files.
 
+**Live demo:** <https://nest.mhlaser.cz> (a test instance on a small server, so it may be slow or offline). Uploaded files are kept in memory for up to 6 hours and are not shared with other visitors, but don't upload anything confidential.
+
 ![Parts and result](docs/screenshots/result.png)
 
 ## Features
@@ -99,10 +101,23 @@ Additional rules:
 
 - State lives **in memory**. Each browser gets an anonymous session cookie (`nest_sid`); uploads and results of different visitors are isolated. A session is dropped after 6 hours of inactivity and everything is lost on restart.
 - At most **2 nesting jobs run at the same time**; others wait in a queue. Nesting is CPU heavy: fine grids, 15° rotations and the higher optimisation levels can take a minute or more on large jobs.
-- There is **no authentication** and no upload size limit in the app. If you expose it to the internet, put it behind a reverse proxy that adds login, a request size limit and rate limiting.
+- There is **no authentication**. The app has limits on upload size, files per upload, parts per visitor and pieces per run (see [Configuration](#configuration)), but if you expose it to the internet, put it behind a reverse proxy that adds rate limiting and, if needed, a login.
 - The raster grid makes the spacing a guarantee rather than an exact value: parts are at least the requested distance apart, usually a little more (up to about one grid pixel).
 - Text is not supported in SVG; convert text to paths first.
 - There are no automated tests yet.
+
+## Configuration
+
+Limits that protect a shared instance are set with environment variables. The defaults are generous, meant for private use; lower them for a public instance.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `NEST_MAX_UPLOAD_FILES` | `100` | Files in one upload request |
+| `NEST_MAX_FILE_MB` | `50` | Size of one uploaded file, in MB |
+| `NEST_MAX_PARTS` | `2000` | Distinct parts kept per visitor |
+| `NEST_MAX_PIECES` | `5000` | Parts times quantity in one nesting run |
+
+Set them for example in `docker-compose.yml` under `environment:`. At most 20 sheet rows are accepted per run.
 
 ## API
 
@@ -165,3 +180,13 @@ location / {
 ```
 
 `X-Forwarded-Proto` makes the session cookie `Secure` when the site is served over HTTPS.
+
+For a public instance also limit the request rate per client address (in the `http` context):
+
+```nginx
+limit_req_zone $binary_remote_addr zone=nest_req:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=nest_heavy:10m rate=20r/m;
+limit_conn_zone $binary_remote_addr zone=nest_conn:10m;
+```
+
+and use `limit_req zone=nest_req burst=40 nodelay;` and `limit_conn nest_conn 20;` in the server block, with a stricter `limit_req zone=nest_heavy burst=5 nodelay;` for `location ~ ^/api/(upload|nest)$`.
