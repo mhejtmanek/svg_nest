@@ -505,7 +505,7 @@ def parse_dxf(data: bytes) -> Parsed:
                         if len(pts) >= 4 and np.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < CLOSE_TOL:
                             pts = pts[:-1]
                         if len(pts) >= 3:
-                            hatch.append(Linework(pts, True, ROLE_ENGRAVE, style, group))
+                            hatch.append(Linework(pts, True, role, style, group))
                 continue
             p = ezpath.make_path(e)
         except (TypeError, ValueError, ezdxf.DXFError):

@@ -122,7 +122,8 @@ def part_json(part: Part) -> dict:
         "area": round(part.area, 2),
         "path": polygon_path_d(part.polygon, 2),
         "cut_path": lines_path_d(part.cut, 2),
-        "engrave_path": lines_path_d(part.engrave, 2) + " " + " ".join(polygon_path_d(f, 2) for f in part.fills),
+        "engrave_path": lines_path_d(part.engrave, 2),
+        "fill_path": " ".join(polygon_path_d(f, 2) for f in part.fills),
         "has_engrave": bool(part.engrave or part.fills),
         "extra_cuts": _extra_cuts(part),
     }

@@ -49,7 +49,7 @@
             <template x-for="f in files" :key="f.id">
               <details class="px-3 py-2" :open="f.styles.length > 1">
                 <summary class="cursor-pointer"><b x-text="f.name"></b>
-                  <span class="text-slate-500" x-text="t('fileSummary', { parts: f.parts.length, styles: f.styles.length })"></span></summary>
+                  <span class="text-slate-500" x-text="t('fileSummary', { parts: f.parts.length, partWord: plural(f.parts.length, 'part'), styles: f.styles.length, styleWord: plural(f.styles.length, 'style') })"></span></summary>
                 <p x-show="f.error" class="text-red-600 mt-1" x-text="f.error"></p>
                                 <div class="mt-2 space-y-1">
                   <template x-for="s in f.styles" :key="s.key">
@@ -81,7 +81,8 @@
               <div class="flex items-center gap-3 p-2">
                 <svg @click="openDetail(p)" :title="t('enlargePart')" :view-box.camel="`${-p.width*0.03} ${-p.height*0.03} ${p.width*1.06} ${p.height*1.06}`" class="w-14 h-14 shrink-0 bg-slate-50 rounded border cursor-zoom-in hover:ring-2 hover:ring-blue-400">
                   <path :d="p.path" fill="#e5e7eb" fill-rule="evenodd"/>
-                  <path :d="p.engrave_path" fill="#3b82f6" fill-opacity="0.35" stroke="#2563eb" fill-rule="evenodd" vector-effect="non-scaling-stroke" stroke-width="1"/>
+                  <path :d="p.fill_path" fill="#3b82f6" fill-opacity="0.35" stroke="#2563eb" fill-rule="evenodd" vector-effect="non-scaling-stroke" stroke-width="1"/>
+                  <path :d="p.engrave_path" fill="none" stroke="#2563eb" vector-effect="non-scaling-stroke" stroke-width="1"/>
                   <path :d="p.cut_path" fill="none" stroke="#dc2626" vector-effect="non-scaling-stroke" stroke-width="1"/>
                 </svg>
                 <div class="min-w-0 flex-1">
@@ -229,6 +230,13 @@
       </div>
     </section>
   </div>
+
+  <footer class="mt-8 pb-4 text-center text-xs text-slate-500">
+    <a href="https://github.com/mhejtmanek/svg_nest" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 hover:text-slate-800">
+      <svg viewBox="0 0 16 16" class="w-4 h-4 fill-current" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span x-text="t('github')"></span>
+    </a>
+  </footer>
   <!-- Part detail -->
   <template x-if="detail">
     <div class="fixed inset-0 z-50 bg-slate-900 p-4 flex flex-col" @keydown.escape.window="detail = null">
@@ -253,7 +261,8 @@
            @pointerdown="dPanStart($event)" @pointermove="dPanMove($event)" @pointerup="dPan = null" @pointercancel="dPan = null"
            class="flex-1 w-full rounded bg-white touch-none select-none" :style="dPan ? 'cursor:grabbing' : 'cursor:grab'">
         <path :d="detail.path" fill="#e5e7eb" fill-rule="evenodd"/>
-        <path :d="detail.engrave_path" fill="#3b82f6" fill-opacity="0.35" stroke="#2563eb" fill-rule="evenodd" vector-effect="non-scaling-stroke" stroke-width="1.5"/>
+        <path :d="detail.fill_path" fill="#3b82f6" fill-opacity="0.35" stroke="#2563eb" fill-rule="evenodd" vector-effect="non-scaling-stroke" stroke-width="1.5"/>
+        <path :d="detail.engrave_path" fill="none" stroke="#2563eb" vector-effect="non-scaling-stroke" stroke-width="1.5"/>
         <path :d="detail.cut_path" fill="none" stroke="#dc2626" vector-effect="non-scaling-stroke" stroke-width="1.5"/>
       </svg>
     </div>
@@ -263,10 +272,11 @@
 <script>
 const I18N = {
   cs: {
+    github: 'Open source na GitHubu',
     subtitle: 'SVG / DXF · FFT konvoluční engine · odřezky a desky různých rozměrů',
     parts: '1. Díly', uploading: 'Nahrávám…', dropzone: 'Přetáhněte sem soubory .svg / .dxf nebo klikněte pro výběr',
     pensTitle: 'Řez / gravírování podle souboru', pensHint: '(barvy a vrstvy se nastavují u každého souboru zvlášť)',
-    fileSummary: '– {parts} dílů, {styles} barev/vrstev',
+    fileSummary: '– {parts} {partWord}, {styles} {styleWord}',
     'role.cut': 'Řez', 'role.engrave': 'Gravírování', 'role.ignore': 'Ignorovat',
     partsCount: '{shapes} tvarů, celkem {pieces} ks', setAll: 'Nastavit všem', clearAll: 'Smazat vše',
     hasEngrave: 'gravírování', extraCuts: '{count} otevřených řezů', quantity: 'Počet kusů', remove: 'Odebrat',
@@ -308,10 +318,11 @@ const I18N = {
     'err.server': 'Server vrátil chybu {detail}',
   },
   en: {
+    github: 'Open source on GitHub',
     subtitle: 'SVG / DXF · FFT convolution engine · offcuts and sheets of different sizes',
     parts: '1. Parts', uploading: 'Uploading…', dropzone: 'Drop .svg / .dxf files here or click to choose',
     pensTitle: 'Cut / engrave per file', pensHint: '(colours and layers are set separately for each file)',
-    fileSummary: '– {parts} parts, {styles} colours/layers',
+    fileSummary: '– {parts} {partWord}, {styles} {styleWord}',
     'role.cut': 'Cut', 'role.engrave': 'Engrave', 'role.ignore': 'Ignore',
     partsCount: '{shapes} shapes, {pieces} pcs in total', setAll: 'Set for all', clearAll: 'Clear all',
     hasEngrave: 'engraving', extraCuts: '{count} open cuts', quantity: 'Quantity', remove: 'Remove',
@@ -427,9 +438,14 @@ function nesting() {
       this.lang = l; document.documentElement.lang = l;
       try { localStorage.setItem('lang', l); } catch (e) {}
     },
-    sheetWord(n) {
-      if (this.lang === 'en') return n === 1 ? 'sheet' : 'sheets';
-      return n === 1 ? 'deska' : (n >= 2 && n <= 4 ? 'desky' : 'desek');
+    sheetWord(n) { return this.plural(n, 'sheet'); },
+    plural(n, noun) {
+      const forms = {
+        en: { part: ['part', 'parts'], style: ['colour/layer', 'colours/layers'], sheet: ['sheet', 'sheets'] },
+        cs: { part: ['díl', 'díly', 'dílů'], style: ['barva/vrstva', 'barvy/vrstvy', 'barev/vrstev'], sheet: ['deska', 'desky', 'desek'] },
+      }[this.lang][noun];
+      if (this.lang === 'en') return n === 1 ? forms[0] : forms[1];
+      return n === 1 ? forms[0] : (n >= 2 && n <= 4 ? forms[1] : forms[2]);
     },
     errorText(e) { return this.t('err.' + e.code, { detail: e.detail || '' }); },
     styleLabel(s) {
