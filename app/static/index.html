@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>True-Shape Nesting</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<style>[x-cloak]{display:none!important}</style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+<div x-data="nesting()" x-cloak class="max-w-[1500px] mx-auto p-4 lg:p-6">
+  <header class="mb-5 flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold">2D True-Shape Nesting</h1>
+      <p class="text-sm text-slate-500" x-text="t('subtitle')"></p>
+    </div>
+    <div class="flex rounded-lg overflow-hidden border border-slate-300 text-sm shrink-0" role="group" aria-label="Language">
+      <button @click="setLang('cs')" :class="lang === 'cs' ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-100'" class="px-3 py-1">CS</button>
+      <button @click="setLang('en')" :class="lang === 'en' ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-100'" class="px-3 py-1">EN</button>
+    </div>
+  </header>
+
+  <div class="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-5">
+    <!-- LEFT: input -->
+    <div class="space-y-5">
+
+      <section class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-semibold mb-3" x-text="t('parts')"></h2>
+        <label @dragover.prevent="drag=true" @dragleave.prevent="drag=false" @drop.prevent="drag=false; upload($event.dataTransfer.files)"
+               :class="drag ? 'border-blue-500 bg-blue-50' : 'border-slate-300'"
+               class="block border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-slate-50">
+          <input type="file" multiple accept=".svg,.dxf" class="hidden" @change="upload($event.target.files); $event.target.value=''">
+          <span class="text-slate-600" x-text="uploading ? t('uploading') : t('dropzone')"></span>
+        </label>
+        <template x-for="w in allWarnings" :key="w.file + w.code + w.count">
+          <p class="mt-2 text-sm text-amber-700"><b x-text="w.file"></b>: <span x-text="t('warn.' + w.code, { count: w.count })"></span></p>
+        </template>
+        <template x-for="e in errors" :key="e.file + e.code">
+          <p class="mt-2 text-sm text-red-600"><b x-text="e.file"></b>: <span x-text="errorText(e)"></span></p>
+        </template>
+
+        <div x-show="parts.length" class="mt-4">
+          <div class="mb-3 border rounded divide-y text-sm">
+            <div class="px-3 py-2 bg-slate-50 font-medium">
+              <span x-text="t('pensTitle')"></span>
+              <span class="font-normal text-slate-500" x-text="t('pensHint')"></span>
+            </div>
+            <template x-for="f in files" :key="f.id">
+              <details class="px-3 py-2" :open="f.styles.length > 1">
+                <summary class="cursor-pointer"><b x-text="f.name"></b>
+                  <span class="text-slate-500" x-text="t('fileSummary', { parts: f.parts.length, styles: f.styles.length })"></span></summary>
+                <p x-show="f.error" class="text-red-600 mt-1" x-text="f.error"></p>
+                                <div class="mt-2 space-y-1">
+                  <template x-for="s in f.styles" :key="s.key">
+                    <div class="flex items-center gap-2">
+                      <span class="w-4 h-4 rounded border shrink-0" :style="`background:${s.color}`"></span>
+                      <span class="flex-1 truncate" x-text="styleLabel(s)"></span>
+                      <span class="text-slate-500 w-14 text-right" x-text="s.count + '×'"></span>
+                      <select x-model="s.role" @change="setRoles(f)" class="border rounded px-1 py-0.5">
+                        <option value="cut" x-text="t('role.cut')"></option>
+                        <option value="engrave" x-text="t('role.engrave')"></option>
+                        <option value="ignore" x-text="t('role.ignore')"></option>
+                      </select>
+                    </div>
+                  </template>
+                </div>
+              </details>
+            </template>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 mb-2 text-sm">
+            <span class="text-slate-500" x-text="t('partsCount', { shapes: parts.length, pieces: totalPieces })"></span>
+            <span class="flex-1"></span>
+            <input type="number" min="0" x-model.number="bulkQty" class="w-20 border rounded px-2 py-1">
+            <button @click="parts.forEach(p => p.quantity = bulkQty)" class="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300" x-text="t('setAll')"></button>
+            <button @click="clearParts()" class="px-3 py-1 rounded bg-red-100 text-red-700 hover:bg-red-200" x-text="t('clearAll')"></button>
+          </div>
+          <div class="max-h-[420px] overflow-y-auto divide-y border rounded">
+            <template x-for="p in parts" :key="p.id">
+              <div class="flex items-center gap-3 p-2">
+                <svg @click="openDetail(p)" :title="t('enlargePart')" :view-box.camel="`${-p.width*0.03} ${-p.height*0.03} ${p.width*1.06} ${p.height*1.06}`" class="w-14 h-14 shrink-0 bg-slate-50 rounded border cursor-zoom-in hover:ring-2 hover:ring-blue-400">
+                  <path :d="p.path" fill="#e5e7eb" fill-rule="evenodd"/>
+                  <path :d="p.engrave_path" fill="#3b82f6" fill-opacity="0.35" stroke="#2563eb" fill-rule="evenodd" vector-effect="non-scaling-stroke" stroke-width="1"/>
+                  <path :d="p.cut_path" fill="none" stroke="#dc2626" vector-effect="non-scaling-stroke" stroke-width="1"/>
+                </svg>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm font-medium" x-text="p.name" :title="p.source"></div>
+                  <div class="text-xs text-slate-500">
+                    <span x-text="p.width.toFixed(1) + ' × ' + p.height.toFixed(1) + ' mm'"></span>
+                    <span x-show="p.has_engrave" class="ml-1 text-blue-600" x-text="'· ' + t('hasEngrave')"></span>
+                    <span x-show="p.extra_cuts" class="ml-1 text-red-600" x-text="'· ' + t('extraCuts', { count: p.extra_cuts })"></span>
+                  </div>
+                </div>
+                <input type="number" min="0" x-model.number="p.quantity" class="w-20 border rounded px-2 py-1 text-sm" :title="t('quantity')">
+                <button @click="removePart(p)" class="text-slate-400 hover:text-red-600 text-lg px-1" :title="t('remove')">✕</button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-semibold mb-3" x-text="t('inventory')"></h2>
+        <table class="w-full text-sm">
+          <thead class="text-left text-slate-500">
+            <tr><th class="pb-1" x-text="t('width')"></th><th x-text="t('height')"></th><th x-text="t('qty')"></th><th x-text="t('auto')"></th><th></th></tr>
+          </thead>
+          <tbody>
+            <template x-for="(s, i) in sheets" :key="s.key">
+              <tr>
+                <td class="pr-1 py-1"><input type="number" min="1" step="any" x-model.number="s.width" class="w-full border rounded px-2 py-1"></td>
+                <td class="pr-1"><input type="number" min="1" step="any" x-model.number="s.height" class="w-full border rounded px-2 py-1"></td>
+                <td class="pr-1"><input type="number" min="1" x-model.number="s.quantity" :disabled="s.auto" class="w-full border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400"></td>
+                <td class="text-center"><input type="checkbox" x-model="s.auto"></td>
+                <td class="whitespace-nowrap text-right">
+                  <button @click="move(i,-1)" :disabled="i===0" class="px-1 text-slate-500 hover:text-slate-900 disabled:opacity-30" :title="t('up')">▲</button>
+                  <button @click="move(i,1)" :disabled="i===sheets.length-1" class="px-1 text-slate-500 hover:text-slate-900 disabled:opacity-30" :title="t('down')">▼</button>
+                  <button @click="sheets.splice(i,1)" :disabled="sheets.length===1" class="px-1 text-slate-400 hover:text-red-600 disabled:opacity-30" :title="t('remove')">✕</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <button @click="addSheet()" class="mt-2 px-3 py-1 text-sm rounded bg-slate-200 hover:bg-slate-300" x-text="t('addSheet')"></button>
+
+        <div class="mt-4 text-sm space-y-1">
+          <div class="font-medium" x-text="t('priority')"></div>
+          <label class="flex gap-2"><input type="radio" value="smallest" x-model="strategy"> <span x-text="t('smallestFirst')"></span></label>
+          <label class="flex gap-2"><input type="radio" value="custom" x-model="strategy"> <span x-text="t('customOrder')"></span></label>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-xl shadow p-4">
+        <h2 class="font-semibold mb-3" x-text="t('params')"></h2>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <label><span x-text="t('spacing')"></span><input type="number" min="0" step="0.1" x-model.number="spacing" class="mt-1 w-full border rounded px-2 py-1"></label>
+          <label><span x-text="t('margin')"></span><input type="number" min="0" step="0.5" x-model.number="margin" class="mt-1 w-full border rounded px-2 py-1"></label>
+          <label><span x-text="t('rotation')"></span>
+            <select x-model.number="rotation" class="mt-1 w-full border rounded px-2 py-1">
+              <option value="0" x-text="t('rot0')"></option><option value="90" x-text="t('rot90')"></option>
+              <option value="45" x-text="t('rot45')"></option><option value="15" x-text="t('rot15')"></option>
+            </select></label>
+          <label><span x-text="t('optimize')"></span>
+            <select x-model.number="optimize" class="mt-1 w-full border rounded px-2 py-1">
+              <option value="1" x-text="t('opt1')"></option><option value="2" x-text="t('opt2')"></option><option value="3" x-text="t('opt3')"></option>
+            </select></label>
+          <label><span x-text="t('resolution')"></span>
+            <select x-model.number="resolution" class="mt-1 w-full border rounded px-2 py-1">
+              <option value="2" x-text="t('res2')"></option><option value="1" x-text="t('res1')"></option>
+              <option value="0.5" x-text="t('res05')"></option><option value="0.25" x-text="t('res025')"></option>
+            </select></label>
+        </div>
+        <div class="mt-4 flex gap-2 items-center">
+          <button @click="run()" :disabled="running" class="px-5 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50" x-text="t('run')"></button>
+          <button x-show="running" @click="cancel()" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300" x-text="t('cancel')"></button>
+        </div>
+        <div x-show="running || status" class="mt-3">
+          <div class="h-2 bg-slate-200 rounded overflow-hidden"><div class="h-full bg-blue-600 transition-all" :style="`width:${progress*100}%`"></div></div>
+          <p class="text-xs text-slate-500 mt-1" x-text="progressText"></p>
+        </div>
+        <p x-show="error" class="mt-2 text-sm text-red-600" x-text="error"></p>
+      </section>
+    </div>
+
+    <!-- RIGHT: results -->
+    <section class="bg-white rounded-xl shadow p-4 self-start lg:sticky lg:top-4">
+      <h2 class="font-semibold mb-3" x-text="t('result')"></h2>
+      <p x-show="!result" class="text-sm text-slate-500" x-text="t('noResult')"></p>
+
+      <div x-show="result">
+        <template x-if="result">
+          <div>
+            <div class="text-sm text-slate-600 mb-1" x-text="t('summary', { sheets: result.sheets.length, sheetWord: sheetWord(result.sheets.length), placed: placedCount, secs: result.elapsed })"></div>
+            <div class="text-xs text-slate-500 mb-3" x-show="result.trials > 1" x-text="t('trialsInfo', { best: result.best_trial, trials: result.trials })"></div>
+            <div x-show="result.unplaced.length" class="mb-3 p-3 rounded bg-amber-50 border border-amber-300 text-sm text-amber-900">
+              <b x-text="t('unplaced')"></b>
+              <template x-for="u in result.unplaced" :key="u.name"><span class="ml-2"><span x-text="u.name"></span> ×<span x-text="u.count"></span></span></template>
+            </div>
+
+            <div class="flex flex-wrap gap-2 mb-3">
+              <template x-for="s in result.sheets" :key="s.index">
+                <button @click="current = s.index"
+                        :class="current === s.index ? 'bg-blue-600 text-white' : 'bg-slate-200 hover:bg-slate-300'"
+                        class="px-3 py-1 rounded text-sm"
+                        x-text="t('sheetTab', { n: s.index, w: s.width, h: s.height, u: s.utilization })"></button>
+              </template>
+            </div>
+
+            <template x-if="currentSheet">
+              <div>
+                <p x-show="currentSheet.free_right" class="mb-2 text-sm text-slate-600"
+                   x-text="t('leftover', { w: currentSheet.free_right, h: currentSheet.height })"></p>
+                <div :class="full ? 'fixed inset-0 z-50 bg-slate-900 p-4 flex flex-col' : ''" @keydown.escape.window="full && toggleFull()">
+                  <div class="flex flex-wrap items-center gap-1 mb-2" :class="full ? 'text-white' : ''">
+                    <button @click="zoomCenter(1.25)" class="w-8 h-8 shrink-0 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 font-bold" :title="t('zoomIn')">+</button>
+                    <button @click="zoomCenter(0.8)" class="w-8 h-8 shrink-0 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 font-bold" :title="t('zoomOut')">−</button>
+                    <button @click="fit()" class="px-3 h-8 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 text-sm whitespace-nowrap shrink-0" x-text="t('fit')"></button>
+                    <span class="text-xs ml-2 opacity-70 whitespace-nowrap w-10" x-text="Math.round(view.k * 100) + ' %'"></span>
+                    <span class="flex-1"></span>
+                    <span class="hidden 2xl:inline text-xs opacity-70 mr-2 whitespace-nowrap" x-text="t('zoomHint')"></span>
+                    <button @click="toggleFull()" class="px-3 h-8 rounded bg-slate-800 text-white hover:bg-slate-700 text-sm whitespace-nowrap shrink-0" x-text="full ? t('closeFull') : t('fullscreen')"></button>
+                  </div>
+                  <div x-ref="vp" x-init="$nextTick(() => fit())" @wheel.prevent="onWheel($event)" @dblclick="fit()"
+                       @pointerdown="panStart($event)" @pointermove="panMove($event)" @pointerup="panEnd()" @pointercancel="panEnd()"
+                       :class="full ? 'flex-1' : 'h-[65vh]'" class="relative overflow-hidden border rounded bg-slate-200 touch-none select-none"
+                       :style="panning ? 'cursor:grabbing' : 'cursor:grab'">
+                    <img :src="`/api/jobs/${jobId}/sheets/${currentSheet.index}.svg?preview=true`" draggable="false"
+                         class="absolute max-w-none bg-white shadow pointer-events-none" :style="imgStyle()" :alt="t('preview')">
+                  </div>
+                </div>
+                <p class="mt-1 text-xs text-slate-400" x-text="t('zoomHint')"></p>
+                <div class="mt-2 flex gap-4 text-xs text-slate-500">
+                  <span><span class="inline-block w-3 h-0.5 bg-red-600 align-middle"></span> <span x-text="t('legendCut')"></span></span>
+                  <span><span class="inline-block w-3 h-0.5 bg-blue-600 align-middle"></span> <span x-text="t('legendEngrave')"></span></span>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2 text-sm">
+                  <a :href="`/api/jobs/${jobId}/sheets/${currentSheet.index}.svg`" class="px-3 py-1.5 rounded bg-slate-800 text-white hover:bg-slate-700" x-text="t('dlSvg')"></a>
+                  <a :href="`/api/jobs/${jobId}/sheets/${currentSheet.index}.dxf`" class="px-3 py-1.5 rounded bg-slate-800 text-white hover:bg-slate-700" x-text="t('dlDxf')"></a>
+                  <span class="flex-1"></span>
+                  <a :href="`/api/jobs/${jobId}/download.zip?format=svg`" class="px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700" x-text="t('zipSvg')"></a>
+                  <a :href="`/api/jobs/${jobId}/download.zip?format=dxf`" class="px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700" x-text="t('zipDxf')"></a>
+                  <a :href="`/api/jobs/${jobId}/download.zip?format=both`" class="px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700" x-text="t('zipBoth')"></a>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </section>
+  </div>
+  <!-- Part detail -->
+  <template x-if="detail">
+    <div class="fixed inset-0 z-50 bg-slate-900 p-4 flex flex-col" @keydown.escape.window="detail = null">
+      <div class="flex flex-wrap items-center gap-2 mb-2 text-white">
+        <div class="min-w-0">
+          <div class="font-semibold truncate" x-text="detail.name"></div>
+          <div class="text-xs opacity-70" x-text="detail.width.toFixed(1) + ' × ' + detail.height.toFixed(1) + ' mm'"></div>
+        </div>
+        <span class="flex-1"></span>
+        <span class="hidden xl:inline text-xs opacity-70 whitespace-nowrap" x-text="t('zoomHint')"></span>
+        <span class="text-xs flex gap-3 mx-2 whitespace-nowrap">
+          <span><span class="inline-block w-3 h-0.5 bg-red-500 align-middle"></span> <span x-text="t('legendCut')"></span></span>
+          <span><span class="inline-block w-3 h-0.5 bg-blue-400 align-middle"></span> <span x-text="t('legendEngrave')"></span></span>
+        </span>
+        <button @click="zoomDetail(1.25)" class="w-8 h-8 shrink-0 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 font-bold" :title="t('zoomIn')">+</button>
+        <button @click="zoomDetail(0.8)" class="w-8 h-8 shrink-0 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 font-bold" :title="t('zoomOut')">−</button>
+        <button @click="fitDetail()" class="px-3 h-8 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 text-sm whitespace-nowrap shrink-0" x-text="t('fitPart')"></button>
+        <button @click="detail = null" class="px-3 h-8 rounded bg-slate-800 text-white hover:bg-slate-700 text-sm border border-slate-600 whitespace-nowrap shrink-0" x-text="t('closeFull')"></button>
+      </div>
+      <svg x-ref="dsvg" x-init="$nextTick(() => fitDetail())" :view-box.camel="detailViewBox()"
+           @wheel.prevent="onDetailWheel($event)" @dblclick="fitDetail()"
+           @pointerdown="dPanStart($event)" @pointermove="dPanMove($event)" @pointerup="dPan = null" @pointercancel="dPan = null"
+           class="flex-1 w-full rounded bg-white touch-none select-none" :style="dPan ? 'cursor:grabbing' : 'cursor:grab'">
+        <path :d="detail.path" fill="#e5e7eb" fill-rule="evenodd"/>
+        <path :d="detail.engrave_path" fill="#3b82f6" fill-opacity="0.35" stroke="#2563eb" fill-rule="evenodd" vector-effect="non-scaling-stroke" stroke-width="1.5"/>
+        <path :d="detail.cut_path" fill="none" stroke="#dc2626" vector-effect="non-scaling-stroke" stroke-width="1.5"/>
+      </svg>
+    </div>
+  </template>
+</div>
+
+<script>
+const I18N = {
+  cs: {
+    subtitle: 'SVG / DXF · FFT konvoluční engine · odřezky a desky různých rozměrů',
+    parts: '1. Díly', uploading: 'Nahrávám…', dropzone: 'Přetáhněte sem soubory .svg / .dxf nebo klikněte pro výběr',
+    pensTitle: 'Řez / gravírování podle souboru', pensHint: '(barvy a vrstvy se nastavují u každého souboru zvlášť)',
+    fileSummary: '– {parts} dílů, {styles} barev/vrstev',
+    'role.cut': 'Řez', 'role.engrave': 'Gravírování', 'role.ignore': 'Ignorovat',
+    partsCount: '{shapes} tvarů, celkem {pieces} ks', setAll: 'Nastavit všem', clearAll: 'Smazat vše',
+    hasEngrave: 'gravírování', extraCuts: '{count} otevřených řezů', quantity: 'Počet kusů', remove: 'Odebrat',
+    inventory: '2. Inventář desek a odřezků', width: 'Šířka (mm)', height: 'Výška (mm)', qty: 'Počet', auto: 'Auto ∞',
+    up: 'Nahoru', down: 'Dolů', addSheet: '+ Přidat desku', priority: 'Priorita plnění',
+    smallestFirst: 'Odřezky první (nejmenší plocha napřed, Auto desky nakonec)',
+    customOrder: 'Vlastní pořadí (podle tabulky shora dolů)',
+    params: '3. Parametry', spacing: 'Mezera mezi díly / kerf (mm)', margin: 'Okraj desky (mm)', rotation: 'Rotace',
+    rot0: 'Žádná', rot90: 'Po 90°', rot45: 'Po 45°', rot15: 'Po 15°', resolution: 'Rozlišení mřížky',
+    res2: '2 mm/px (nejrychlejší)', res1: '1 mm/px', res05: '0,5 mm/px', res025: '0,25 mm/px (nejpřesnější)',
+    optimize: 'Optimalizace', opt1: 'Rychlá (1 pokus)', opt2: 'Důkladná (až 6 pokusů)', opt3: 'Maximální (až 12 pokusů)',
+    trialsInfo: 'Nejlepší výsledek z pokusu {best} z {trials}',
+    leftover: 'Zbytek vpravo je volný: asi {w} × {h} mm (díly jsou srovnané zleva)',
+    run: 'Spustit nesting', cancel: 'Zrušit',
+    result: 'Výsledek', noResult: 'Zatím žádný výpočet.',
+    summary: '{sheets} {sheetWord}, {placed} ks umístěno, výpočet {secs} s', unplaced: 'Nevešlo se:',
+    sheetTab: 'Sheet {n} ({w}×{h} mm) – využití {u} %', preview: 'Náhled desky',
+    enlargePart: 'Zvětšit díl', fitPart: 'Celý díl',
+    zoomIn: 'Přiblížit', zoomOut: 'Oddálit', fit: 'Celá deska', fullscreen: 'Celá obrazovka', closeFull: 'Zavřít (Esc)',
+    zoomHint: 'Kolečko = zoom, tažení = posun, dvojklik = celá deska.',
+    legendCut: 'řez', legendEngrave: 'gravírování',
+    dlSvg: 'Stáhnout SVG', dlDxf: 'Stáhnout DXF', zipSvg: 'ZIP – vše SVG', zipDxf: 'ZIP – vše DXF', zipBoth: 'ZIP – SVG + DXF',
+    'stage.queued': 'Čekám ve frontě (výpočty ostatních uživatelů)…', 'stage.starting': 'Spouštím…', 'stage.sheet': 'Deska {n}: {width}×{height} mm', 'stage.sheetTrial': 'Pokus {trial}/{trials} · deska {n}: {width}×{height} mm', 'stage.done': 'Hotovo',
+    'stage.cancelled': 'Zrušeno', 'stage.error': 'Chyba výpočtu',
+    fill: 'Výplň', noStroke: 'bez tahu (výplň)',
+    color: { black: 'černá', gray: 'šedá', white: 'bílá', brown: 'hnědá', red: 'červená', orange: 'oranžová', yellow: 'žlutá',
+             green: 'zelená', cyan: 'azurová', blue: 'modrá', violet: 'fialová', magenta: 'purpurová' },
+    'warn.orphans': '{count} čar/výplní leží mimo jakýkoli díl a byly vynechány',
+    'err.invalid_svg': 'Neplatné SVG: {detail}', 'err.invalid_dxf': 'Neplatné DXF: {detail}',
+    'err.unsupported': 'Podporované jsou pouze soubory .svg a .dxf',
+    'err.no_shape': 'V souboru nebyl nalezen žádný uzavřený řezaný tvar',
+    'err.failed': 'Soubor se nepodařilo zpracovat: {detail}',
+    'err.no_parts': 'Není co skládat – nahrajte díly (nebo vypršela relace) a nastavte počet kusů',
+    'err.bad_rotation': 'Neplatný krok rotace', 'err.bad_strategy': 'Neplatná strategie',
+    'err.no_shape_roles': 'S tímto nastavením není v souboru žádný řezaný tvar',
+    'err.file_not_found': 'Relace vypršela – nahrajte soubory znovu', 'err.job_not_found': 'Relace vypršela – spusťte výpočet znovu',
+    'err.invalid': 'Neplatné zadání', 'err.generic': 'Chyba',
+    'err.sheetSize': 'Rozměry desek musí být kladné.', 'err.pickFiles': 'Vyberte soubory .svg nebo .dxf',
+    'err.server': 'Server vrátil chybu {detail}',
+  },
+  en: {
+    subtitle: 'SVG / DXF · FFT convolution engine · offcuts and sheets of different sizes',
+    parts: '1. Parts', uploading: 'Uploading…', dropzone: 'Drop .svg / .dxf files here or click to choose',
+    pensTitle: 'Cut / engrave per file', pensHint: '(colours and layers are set separately for each file)',
+    fileSummary: '– {parts} parts, {styles} colours/layers',
+    'role.cut': 'Cut', 'role.engrave': 'Engrave', 'role.ignore': 'Ignore',
+    partsCount: '{shapes} shapes, {pieces} pcs in total', setAll: 'Set for all', clearAll: 'Clear all',
+    hasEngrave: 'engraving', extraCuts: '{count} open cuts', quantity: 'Quantity', remove: 'Remove',
+    inventory: '2. Sheet and offcut inventory', width: 'Width (mm)', height: 'Height (mm)', qty: 'Qty', auto: 'Auto ∞',
+    up: 'Move up', down: 'Move down', addSheet: '+ Add sheet', priority: 'Fill priority',
+    smallestFirst: 'Offcuts first (smallest area first, Auto sheets last)',
+    customOrder: 'Custom order (as listed in the table, top to bottom)',
+    params: '3. Parameters', spacing: 'Part spacing / kerf (mm)', margin: 'Sheet margin (mm)', rotation: 'Rotation',
+    rot0: 'None', rot90: 'Every 90°', rot45: 'Every 45°', rot15: 'Every 15°', resolution: 'Grid resolution',
+    res2: '2 mm/px (fastest)', res1: '1 mm/px', res05: '0.5 mm/px', res025: '0.25 mm/px (most precise)',
+    optimize: 'Optimisation', opt1: 'Fast (1 attempt)', opt2: 'Thorough (up to 6 attempts)', opt3: 'Maximum (up to 12 attempts)',
+    trialsInfo: 'Best result from attempt {best} of {trials}',
+    leftover: 'Free strip on the right: about {w} × {h} mm (parts are packed from the left)',
+    run: 'Run nesting', cancel: 'Cancel',
+    result: 'Result', noResult: 'No calculation yet.',
+    summary: '{sheets} {sheetWord}, {placed} pcs placed, calculated in {secs} s', unplaced: "Didn't fit:",
+    sheetTab: 'Sheet {n} ({w}×{h} mm) – utilisation {u} %', preview: 'Sheet preview',
+    enlargePart: 'Enlarge part', fitPart: 'Fit part',
+    zoomIn: 'Zoom in', zoomOut: 'Zoom out', fit: 'Fit sheet', fullscreen: 'Full screen', closeFull: 'Close (Esc)',
+    zoomHint: 'Wheel = zoom, drag = pan, double-click = fit.',
+    legendCut: 'cut', legendEngrave: 'engrave',
+    dlSvg: 'Download SVG', dlDxf: 'Download DXF', zipSvg: 'ZIP – all SVG', zipDxf: 'ZIP – all DXF', zipBoth: 'ZIP – SVG + DXF',
+    'stage.queued': 'Waiting in the queue (other users\' calculations)…', 'stage.starting': 'Starting…', 'stage.sheet': 'Sheet {n}: {width}×{height} mm', 'stage.sheetTrial': 'Attempt {trial}/{trials} · sheet {n}: {width}×{height} mm', 'stage.done': 'Done',
+    'stage.cancelled': 'Cancelled', 'stage.error': 'Calculation error',
+    fill: 'Fill', noStroke: 'no stroke (fill)',
+    color: { black: 'black', gray: 'gray', white: 'white', brown: 'brown', red: 'red', orange: 'orange', yellow: 'yellow',
+             green: 'green', cyan: 'cyan', blue: 'blue', violet: 'violet', magenta: 'magenta' },
+    'warn.orphans': '{count} lines/fills lie outside any part and were skipped',
+    'err.invalid_svg': 'Invalid SVG: {detail}', 'err.invalid_dxf': 'Invalid DXF: {detail}',
+    'err.unsupported': 'Only .svg and .dxf files are supported',
+    'err.no_shape': 'No closed cut shape was found in the file',
+    'err.failed': 'The file could not be processed: {detail}',
+    'err.no_parts': 'Nothing to nest – upload parts (or the session expired) and set their quantities',
+    'err.bad_rotation': 'Invalid rotation step', 'err.bad_strategy': 'Invalid strategy',
+    'err.no_shape_roles': 'With these settings the file contains no cut shape',
+    'err.file_not_found': 'Session expired – upload the files again', 'err.job_not_found': 'Session expired – run the calculation again',
+    'err.invalid': 'Invalid input', 'err.generic': 'Error',
+    'err.sheetSize': 'Sheet dimensions must be positive.', 'err.pickFiles': 'Choose .svg or .dxf files',
+    'err.server': 'Server returned error {detail}',
+  },
+};
+
+function nesting() {
+  let keySeq = 0;
+  const mkSheet = (width, height, quantity, auto) => ({ key: ++keySeq, width, height, quantity, auto });
+  const stored = (() => { try { return localStorage.getItem('lang'); } catch (e) { return null; } })();
+  const initialLang = stored || ((navigator.language || 'cs').toLowerCase().startsWith('cs') ? 'cs' : 'en');
+  return {
+    lang: initialLang,
+    parts: [], files: [], errors: [], drag: false, uploading: false, bulkQty: 1,
+    sheets: [mkSheet(400, 400, 1, true)],
+    strategy: 'smallest', spacing: 1.5, margin: 5, rotation: 15, resolution: 0.5, optimize: 2,
+    running: false, status: '', progress: 0, info: { stage: 'starting' }, error: '', errorKey: null,
+    jobId: null, result: null, current: 1, timer: null,
+
+    detail: null, dv: { s: 1, ox: 0, oy: 0, cw: 1, ch: 1 }, dPan: null,
+    openDetail(p) { this.detail = p; },
+    fitDetail() {
+      const el = this.$refs.dsvg, p = this.detail;
+      if (!el || !p) return;
+      const box = el.getBoundingClientRect();  // clientWidth is unreliable on inline <svg>
+      const cw = box.width || window.innerWidth - 32, ch = box.height || window.innerHeight - 100;
+      const s = Math.min(cw / (p.width * 1.1), ch / (p.height * 1.1));
+      this.dv = { s, cw, ch, ox: p.width / 2 - cw / (2 * s), oy: p.height / 2 - ch / (2 * s) };
+    },
+    detailViewBox() { const d = this.dv; return `${d.ox} ${d.oy} ${d.cw / d.s} ${d.ch / d.s}`; },
+    zoomDetailAt(factor, cx, cy) {
+      const d = this.dv, s = Math.min(5000, Math.max(0.05, d.s * factor));
+      this.dv = { ...d, s, ox: d.ox + cx / d.s - cx / s, oy: d.oy + cy / d.s - cy / s };
+    },
+    zoomDetail(factor) { this.zoomDetailAt(factor, this.dv.cw / 2, this.dv.ch / 2); },
+    onDetailWheel(e) { const r = this.$refs.dsvg.getBoundingClientRect(); this.zoomDetailAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - r.left, e.clientY - r.top); },
+    dPanStart(e) { this.dPan = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture(e.pointerId); },
+    dPanMove(e) {
+      if (!this.dPan) return;
+      const d = this.dv;
+      this.dv = { ...d, ox: d.ox - (e.clientX - this.dPan.x) / d.s, oy: d.oy - (e.clientY - this.dPan.y) / d.s };
+      this.dPan = { x: e.clientX, y: e.clientY };
+    },
+    view: { k: 1, x: 0, y: 0 }, fitScale: 1, full: false, panning: false, panFrom: null,
+    init() {
+      document.documentElement.lang = this.lang;
+      this.$watch('current', () => this.$nextTick(() => this.fit()));
+      window.addEventListener('resize', () => { if (this.view.k === 1) this.fit(); });
+    },
+    fit() {
+      const vp = this.$refs.vp, s = this.currentSheet;
+      if (!vp || !s) return;
+      const cw = vp.clientWidth, ch = vp.clientHeight;
+      this.fitScale = Math.min(cw / s.width, ch / s.height) * 0.98;
+      this.view = { k: 1, x: (cw - s.width * this.fitScale) / 2, y: (ch - s.height * this.fitScale) / 2 };
+    },
+    imgStyle() {
+      const s = this.currentSheet; if (!s) return '';
+      const f = this.fitScale * this.view.k;
+      return `left:${this.view.x}px;top:${this.view.y}px;width:${s.width * f}px;height:${s.height * f}px`;
+    },
+    zoomAt(factor, cx, cy) {
+      const k = Math.min(60, Math.max(0.5, this.view.k * factor)), r = k / this.view.k;
+      this.view = { k, x: cx - (cx - this.view.x) * r, y: cy - (cy - this.view.y) * r };
+    },
+    zoomCenter(factor) { const vp = this.$refs.vp; this.zoomAt(factor, vp.clientWidth / 2, vp.clientHeight / 2); },
+    onWheel(e) { const r = this.$refs.vp.getBoundingClientRect(); this.zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - r.left, e.clientY - r.top); },
+    panStart(e) { this.panning = true; this.panFrom = { x: e.clientX - this.view.x, y: e.clientY - this.view.y }; e.currentTarget.setPointerCapture(e.pointerId); },
+    panMove(e) { if (this.panning) this.view = { ...this.view, x: e.clientX - this.panFrom.x, y: e.clientY - this.panFrom.y }; },
+    panEnd() { this.panning = false; },
+    toggleFull() { this.full = !this.full; this.$nextTick(() => this.fit()); },
+    t(key, params = {}) {
+      const s = (I18N[this.lang][key] ?? I18N.en[key] ?? key);
+      return typeof s === 'string' ? s.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? '') : key;
+    },
+    setLang(l) {
+      this.lang = l; document.documentElement.lang = l;
+      try { localStorage.setItem('lang', l); } catch (e) {}
+    },
+    sheetWord(n) {
+      if (this.lang === 'en') return n === 1 ? 'sheet' : 'sheets';
+      return n === 1 ? 'deska' : (n >= 2 && n <= 4 ? 'desky' : 'desek');
+    },
+    errorText(e) { return this.t('err.' + e.code, { detail: e.detail || '' }); },
+    styleLabel(s) {
+      if (s.color_name === 'none') return this.t('noStroke');
+      const name = I18N[this.lang].color[s.color_name] || s.color_name;
+      const base = s.kind === 'hatch' ? `${this.t('fill')} ${name}` : name.charAt(0).toUpperCase() + name.slice(1);
+      return s.layer ? `${base} · ${s.layer}` : base;
+    },
+    get allWarnings() { return this.files.flatMap(f => f.warnings || []); },
+    get progressText() {
+      const stage = this.info.stage || 'starting';
+      return this.t(stage === 'sheet' && this.info.trials > 1 ? 'stage.sheetTrial' : 'stage.' + stage, this.info);
+    },
+    get totalPieces() { return this.parts.reduce((n, p) => n + (p.quantity || 0), 0); },
+    get placedCount() { return this.result ? this.result.sheets.reduce((n, s) => n + s.count, 0) : 0; },
+    get currentSheet() { return this.result ? this.result.sheets.find(s => s.index === this.current) : null; },
+
+    addSheet() { this.sheets.push(mkSheet(300, 300, 1, false)); },
+    move(i, d) { const [s] = this.sheets.splice(i, 1); this.sheets.splice(i + d, 0, s); },
+
+    async upload(fileList) {
+      const files = Array.from(fileList).filter(f => /\.(svg|dxf)$/i.test(f.name));
+      this.errors = [];
+      if (!files.length) { this.errors = [{ file: '', code: 'pickFiles' }]; return; }
+      this.uploading = true;
+      try {
+        const fd = new FormData();
+        files.forEach(f => fd.append('files', f));
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        if (!r.ok) throw new Error(r.status);
+        const data = await r.json();
+        data.files.forEach(f => {
+          f.parts.forEach(p => { p.quantity = 1; this.parts.push(p); });
+          this.files.push({ id: f.id, name: f.name, styles: f.styles, warnings: f.warnings, parts: f.parts, error: '' });
+        });
+        this.errors = data.errors;
+      } catch (e) {
+        this.errors = [{ file: '', code: 'server', detail: e.message }];
+      } finally { this.uploading = false; }
+    },
+    async removePart(p) {
+      await fetch('/api/parts/' + p.id, { method: 'DELETE' });
+      this.parts = this.parts.filter(x => x.id !== p.id);
+      const f = this.files.find(x => x.id === p.file_id);
+      if (f) { f.parts = f.parts.filter(x => x.id !== p.id); if (!f.parts.length) this.files = this.files.filter(x => x !== f); }
+    },
+    async clearParts() {
+      await fetch('/api/parts', { method: 'DELETE' });
+      this.parts = []; this.files = [];
+    },
+    apiError(data) {
+      const code = typeof data.detail === 'string' ? data.detail : 'invalid';
+      return code === 'no_shape' ? this.t('err.no_shape_roles') : this.t('err.' + code);
+    },
+    async setRoles(f) {
+      const roles = Object.fromEntries(f.styles.map(s => [s.key, s.role]));
+      f.error = '';
+      try {
+        const r = await fetch(`/api/files/${f.id}/roles`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roles }) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(this.apiError(data));
+        const qty = Object.fromEntries(this.parts.filter(p => p.file_id === f.id).map(p => [p.name, p.quantity]));
+        const idx = this.parts.findIndex(p => p.file_id === f.id);
+        this.parts = this.parts.filter(p => p.file_id !== f.id);
+        data.parts.forEach(p => { p.quantity = qty[p.name] ?? 1; });
+        this.parts.splice(Math.max(idx, 0), 0, ...data.parts);
+        f.parts = data.parts; f.warnings = data.warnings;
+      } catch (e) {
+        f.error = e.message;
+      }
+    },
+
+    async run() {
+      this.error = '';
+      const sheets = this.sheets.map(s => ({ width: +s.width, height: +s.height, quantity: Math.max(1, +s.quantity || 1), auto: !!s.auto }));
+      if (sheets.some(s => !(s.width > 0 && s.height > 0))) { this.error = this.t('err.sheetSize'); return; }
+      const parts = this.parts.map(p => ({ id: p.id, quantity: Math.max(0, +p.quantity || 0) }));
+      if (!parts.some(p => p.quantity > 0)) { this.error = this.t('err.no_parts'); return; }
+      this.running = true; this.status = 'running'; this.progress = 0; this.info = { stage: 'queued' }; this.result = null;
+      try {
+        const r = await fetch('/api/nest', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parts, sheets, strategy: this.strategy, spacing: +this.spacing, margin: +this.margin,
+                                 rotation_step: +this.rotation, resolution: +this.resolution,
+                                 optimize: +this.optimize }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(this.apiError(data));
+        this.jobId = data.job_id;
+        this.timer = setInterval(() => this.poll(), 500);
+      } catch (e) { this.error = e.message; this.running = false; this.status = ''; }
+    },
+    async poll() {
+      try {
+        const r = await fetch('/api/jobs/' + this.jobId);
+        const j = await r.json();
+        if (!r.ok) { clearInterval(this.timer); this.running = false; this.status = ''; this.error = this.apiError(j); return; }
+        this.progress = j.progress; this.info = j.info; this.status = j.status;
+        if (j.status === 'running' || j.status === 'queued') return;
+        clearInterval(this.timer); this.running = false;
+        if (j.status === 'done') { this.result = j.result; this.current = j.result.sheets.length ? j.result.sheets[0].index : 1; }
+        else if (j.status === 'error') this.error = j.error;
+      } catch (e) { clearInterval(this.timer); this.running = false; this.error = e.message; }
+    },
+    async cancel() { if (this.jobId) await fetch(`/api/jobs/${this.jobId}/cancel`, { method: 'POST' }); },
+  };
+}
+</script>
+</body>
+</html>
