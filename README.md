@@ -56,6 +56,7 @@ uvicorn app.main:app --reload
    - *Sheet margin*: distance kept free along the sheet edge.
    - *Rotation*: none, every 90°, 45° or 15°.
    - *Grid resolution*: size of one raster pixel. Finer is more precise and slower.
+   - *Put parts with engraving on one sheet*: parts that have engraving are placed first, so they end up on as few sheets as possible and the other parts fill the remaining space. Useful when the engraving pass is run separately or only some sheets go through the engraver. Off by default.
    - *Optimisation*: 1 fast pass, up to 6 or up to 12 attempts with different part orders and packing directions. The best result is kept: all parts placed, then the fewest sheets, then the weakest sheet before the last one as full as possible.
 4. **Run nesting** and flip through the sheets. A part that fits on no sheet is listed as *Didn't fit*.
 5. **Download** one sheet as SVG or DXF, or everything as a ZIP (`sheet_01_200x300mm.svg`, …).
@@ -148,7 +149,8 @@ Example request body for `POST /api/nest`:
   "rotation_step": 15,
   "resolution": 0.5,
   "strategy": "smallest",
-  "optimize": 2
+  "optimize": 2,
+  "engrave_together": false
 }
 ```
 

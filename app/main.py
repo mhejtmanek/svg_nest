@@ -259,6 +259,7 @@ class NestRequest(BaseModel):
     resolution: float = Field(default=0.5, ge=0.1, le=5)
     strategy: str = "smallest"
     optimize: int = Field(default=1, ge=1, le=3)
+    engrave_together: bool = False
 
 
 def _run_job(job: Job, parts: list[tuple[Part, int]], sheets: list[SheetSpec], params: NestParams) -> None:
@@ -298,7 +299,8 @@ def start_nest(req: NestRequest, sess: Session = Depends(get_session)):
 
     job = Job({p.id: p for p, _ in selected})
     sheets = [SheetSpec(s.width, s.height, None if s.auto else s.quantity) for s in req.sheets]
-    params = NestParams(req.spacing, req.margin, req.rotation_step, req.resolution, req.strategy, req.optimize)
+    params = NestParams(req.spacing, req.margin, req.rotation_step, req.resolution, req.strategy, req.optimize,
+                        req.engrave_together)
     with sess.lock:
         sess.jobs[job.id] = job
         while len(sess.jobs) > MAX_JOBS:
@@ -337,6 +339,7 @@ def job_status(job_id: str, sess: Session = Depends(get_session)):
                 "height": s.height,
                 "utilization": round(s.utilization, 1),
                 "free_right": round(s.free_right) if s.free_right else 0,
+                "engraved": s.engraved,
                 "count": len(s.placements),
                 "filename": _sheet_filename(s, "svg"),
             } for s in job.result.sheets],

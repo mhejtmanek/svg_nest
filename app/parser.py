@@ -72,6 +72,10 @@ class Part:
     def area(self) -> float:
         return self.polygon.area
 
+    @property
+    def engraved(self) -> bool:
+        return bool(self.engrave or self.fills)
+
 
 # --------------------------------------------------------------------------- #
 # Ring classification and part assembly

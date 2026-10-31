@@ -55,6 +55,7 @@ class NestParams:
     resolution: float = 0.5
     strategy: str = "smallest"      # "smallest" or "custom"
     optimize: int = 1               # 1 = one fast pass, 2 = thorough, 3 = maximum (several part orders / gravities)
+    engrave_together: bool = False  # place parts with engraving first so they end up on as few sheets as possible
 
     @property
     def angles(self) -> list[int]:
@@ -79,6 +80,7 @@ class SheetResult:
     placements: list[Placement]
     utilization: float
     free_right: float = 0.0     # width (mm) of the untouched strip on the right of the last sheet
+    engraved: int = 0           # number of parts with engraving on this sheet
 
 
 @dataclass
@@ -166,6 +168,14 @@ class _Instance:
     number: int
 
 
+def _sort_instances(instances: list["_Instance"], key: Callable, engrave_first: bool) -> None:
+    """Biggest first; with engrave_first the parts with engraving go before all the others."""
+    if engrave_first:
+        instances.sort(key=lambda i: (not i.part.engraved, -key(i.part)))
+    else:
+        instances.sort(key=lambda i: -key(i.part))
+
+
 def _find_position(grid: np.ndarray, variants: list[_Variant], wx: float = 1.0, wy: float = 1.0, contact: float = 0.0):
     """Best (row, col) over all rotations, packing towards the bottom-left corner."""
     grid_h, grid_w = grid.shape
@@ -241,7 +251,7 @@ def _nest_once(parts: list[tuple[Part, int]], ordered: list[SheetSpec], params: 
                tick: Callable[[], None]) -> tuple[list[SheetResult], list[_Instance]]:
     instances = [_Instance(p, k) for p, qty in parts for k in range(qty)]
     key = ORDER_KEYS[order]
-    instances.sort(key=lambda i: -key(i.part))
+    _sort_instances(instances, key, params.engrave_together)
     total = len(instances)
     remaining = list(instances)
     results: list[SheetResult] = []
@@ -287,7 +297,7 @@ def _repack_last(result: SheetResult, parts: dict[str, Part], params: NestParams
         key = ORDER_KEYS[order]
         for wx, wy in REPACK_WEIGHTS:
             instances = [_Instance(parts[pl.part_id], pl.instance) for pl in result.placements]
-            instances.sort(key=lambda i: -key(i.part))
+            _sort_instances(instances, key, params.engrave_together)
             placed = _fill_sheet(spec, params, cache, instances, tick, wx, wy)
             if len(placed) != count:
                 continue
@@ -300,14 +310,18 @@ def _repack_last(result: SheetResult, parts: dict[str, Part], params: NestParams
                        utilization=result.utilization, free_right=free)
 
 
-def _score(results: list[SheetResult], remaining: list[_Instance]) -> tuple:
-    """Lower is better: everything placed, fewest sheets, then the weakest non-last sheet as full as possible."""
+def _score(results: list[SheetResult], remaining: list[_Instance], engraved_ids: Optional[set[str]] = None) -> tuple:
+    """Lower is better: everything placed, (optionally) engraved parts on the fewest sheets, fewest sheets,
+    then the weakest non-last sheet as full as possible."""
+    engraved_sheets = 0
+    if engraved_ids:
+        engraved_sheets = sum(1 for s in results if any(pl.part_id in engraved_ids for pl in s.placements))
     sheet_area = sum(s.width * s.height for s in results)
     inner = [s.utilization for s in results[:-1]]
     weakest = min(inner) if inner else 100.0
     last = results[-1] if results else None
     last_used = last.utilization * last.width * last.height / 100.0 if last else 0.0
-    return (len(remaining), round(sheet_area), len(results), -round(weakest, 1), last_used)
+    return (len(remaining), engraved_sheets, round(sheet_area), len(results), -round(weakest, 1), last_used)
 
 
 def nest(parts: list[tuple[Part, int]], sheets: list[SheetSpec], params: NestParams,
@@ -321,6 +335,7 @@ def nest(parts: list[tuple[Part, int]], sheets: list[SheetSpec], params: NestPar
 
     cache = _MaskCache(params.spacing, params.resolution, params.angles)
     trials = TRIALS[:TRIAL_COUNT.get(params.optimize, 1)]
+    engraved_ids = {p.id for p, _ in parts if p.engraved} if params.engrave_together else None
 
     def tick() -> None:
         if cancelled and cancelled():
@@ -335,15 +350,17 @@ def nest(parts: list[tuple[Part, int]], sheets: list[SheetSpec], params: NestPar
                              {**info, "trial": number, "trials": len(trials)})
 
             results, remaining = _nest_once(parts, ordered, params, cache, order, wx, wy, contact, report, tick)
-            score = _score(results, remaining)
+            score = _score(results, remaining, engraved_ids)
             if best is None or score < best[0]:
                 best = (score, results, remaining, number)
 
     _, results, remaining, number = best
+    by_id = {p.id: p for p, _ in parts}
     if results:
-        by_id = {p.id: p for p, _ in parts}
         with scipy.fft.set_workers(os.cpu_count() or 1):
             results[-1] = _repack_last(results[-1], by_id, params, cache, tick)
+    for sheet in results:
+        sheet.engraved = sum(1 for pl in sheet.placements if by_id[pl.part_id].engraved)
     unplaced: dict[str, int] = {}
     for inst in remaining:
         unplaced[inst.part.id] = unplaced.get(inst.part.id, 0) + 1

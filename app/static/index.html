@@ -146,6 +146,11 @@
             <select x-model.number="optimize" class="mt-1 w-full border rounded px-2 py-1">
               <option value="1" x-text="t('opt1')"></option><option value="2" x-text="t('opt2')"></option><option value="3" x-text="t('opt3')"></option>
             </select></label>
+          <label class="col-span-2 flex items-start gap-2">
+            <input type="checkbox" x-model="engraveTogether" class="mt-1">
+            <span><span x-text="t('engraveTogether')"></span>
+              <span class="block text-xs text-slate-500" x-text="t('engraveTogetherHint')"></span></span>
+          </label>
           <label><span x-text="t('resolution')"></span>
             <select x-model.number="resolution" class="mt-1 w-full border rounded px-2 py-1">
               <option value="2" x-text="t('res2')"></option><option value="1" x-text="t('res1')"></option>
@@ -190,6 +195,8 @@
 
             <template x-if="currentSheet">
               <div>
+                <p x-show="currentSheet.engraved" class="mb-1 text-sm text-slate-600"
+                   x-text="t('engravedOnSheet', { n: currentSheet.engraved })"></p>
                 <p x-show="currentSheet.free_right" class="mb-2 text-sm text-slate-600"
                    x-text="t('leftover', { w: currentSheet.free_right, h: currentSheet.height })"></p>
                 <div :class="full ? 'fixed inset-0 z-50 bg-slate-900 p-4 flex flex-col' : ''" @keydown.escape.window="full && toggleFull()">
@@ -289,6 +296,9 @@ const I18N = {
     res2: '2 mm/px (nejrychlejší)', res1: '1 mm/px', res05: '0,5 mm/px', res025: '0,25 mm/px (nejpřesnější)',
     optimize: 'Optimalizace', opt1: 'Rychlá (1 pokus)', opt2: 'Důkladná (až 6 pokusů)', opt3: 'Maximální (až 12 pokusů)',
     trialsInfo: 'Nejlepší výsledek z pokusu {best} z {trials}',
+    engraveTogether: 'Díly s gravírováním dát primárně na jednu desku',
+    engraveTogetherHint: 'Gravírované díly se skládají jako první, aby skončily na co nejméně deskách (ostatní díly vyplní zbytek).',
+    engravedOnSheet: 'Gravírované díly na této desce: {n}',
     leftover: 'Zbytek vpravo je volný: asi {w} × {h} mm (díly jsou srovnané zleva)',
     run: 'Spustit nesting', cancel: 'Zrušit',
     result: 'Výsledek', noResult: 'Zatím žádný výpočet.',
@@ -337,6 +347,9 @@ const I18N = {
     res2: '2 mm/px (fastest)', res1: '1 mm/px', res05: '0.5 mm/px', res025: '0.25 mm/px (most precise)',
     optimize: 'Optimisation', opt1: 'Fast (1 attempt)', opt2: 'Thorough (up to 6 attempts)', opt3: 'Maximum (up to 12 attempts)',
     trialsInfo: 'Best result from attempt {best} of {trials}',
+    engraveTogether: 'Put parts with engraving on one sheet where possible',
+    engraveTogetherHint: 'Engraved parts are placed first so they end up on as few sheets as possible (other parts fill the rest).',
+    engravedOnSheet: 'Parts with engraving on this sheet: {n}',
     leftover: 'Free strip on the right: about {w} × {h} mm (parts are packed from the left)',
     run: 'Run nesting', cancel: 'Cancel',
     result: 'Result', noResult: 'No calculation yet.',
@@ -378,7 +391,7 @@ function nesting() {
     lang: initialLang,
     parts: [], files: [], errors: [], drag: false, uploading: false, bulkQty: 1,
     sheets: [mkSheet(400, 400, 1, true)],
-    strategy: 'smallest', spacing: 1.5, margin: 5, rotation: 15, resolution: 0.5, optimize: 2,
+    strategy: 'smallest', spacing: 1.5, margin: 5, rotation: 15, resolution: 0.5, optimize: 2, engraveTogether: false,
     running: false, status: '', progress: 0, info: { stage: 'starting' }, error: '', errorKey: null,
     jobId: null, result: null, current: 1, timer: null,
 
@@ -539,7 +552,7 @@ function nesting() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ parts, sheets, strategy: this.strategy, spacing: +this.spacing, margin: +this.margin,
                                  rotation_step: +this.rotation, resolution: +this.resolution,
-                                 optimize: +this.optimize }),
+                                 optimize: +this.optimize, engrave_together: !!this.engraveTogether }),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(this.apiError(data));
