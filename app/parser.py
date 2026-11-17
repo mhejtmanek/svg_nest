@@ -26,6 +26,7 @@ from svgelements import Linear
 
 PX_TO_MM = 25.4 / 96.0
 MIN_PART_AREA = 0.25
+MIN_FILL_AREA = 0.0005       # mm2: rings of engraved areas below this are numerical noise
 CLOSE_TOL = 0.05
 SNAP_GRID = 0.01
 ENDPOINT_SNAP = 0.1          # gap (mm) in an outline that is still treated as closed
@@ -148,7 +149,7 @@ def _is_dark(rgb) -> bool:
     return max(rgb[0], rgb[1], rgb[2]) < 70
 
 
-def _to_polygons(pts: list[tuple[float, float]]) -> list[Polygon]:
+def _to_polygons(pts: list[tuple[float, float]], min_area: float = MIN_PART_AREA) -> list[Polygon]:
     poly = Polygon(pts)
     if not poly.is_valid:
         poly = make_valid(poly)
@@ -162,7 +163,7 @@ def _to_polygons(pts: list[tuple[float, float]]) -> list[Polygon]:
         # the even-odd step rebuilds the nesting
         for ring in [g.exterior, *g.interiors]:
             candidate = Polygon(ring)
-            if candidate.area >= MIN_PART_AREA:
+            if candidate.area >= min_area:
                 rings.append(candidate)
     return rings
 
@@ -330,7 +331,8 @@ def _assemble(parsed: Parsed, overrides: dict[str, str]) -> tuple[list[dict], in
             out[idx]["cut" if l.role == ROLE_CUT else "engrave"].append(ls)
 
     for group in hatch_groups.values():
-        hatch_polys = [poly for pts in group for poly in _to_polygons(pts)]
+        # details of an engraved area (eyes, dots) can be far smaller than a part
+        hatch_polys = [poly for pts in group for poly in _to_polygons(pts, MIN_FILL_AREA)]
         for geom, _ in _even_odd(hatch_polys):
             idx = owner(geom.representative_point())
             if idx is None:
