@@ -412,7 +412,8 @@ def parse_svg(data: bytes) -> Parsed:
         path = abs(el if isinstance(el, Path) else Path(el))
         for sub in path.as_subpaths():
             pts, is_closed = _flatten_svg_subpath(sub)
-            closed = is_closed and len(pts) >= 3
+            # a filled shape is closed by its fill even when the path has no closing z
+            closed = (is_closed or (has_fill and not has_stroke)) and len(pts) >= 3
             if closed and np.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < CLOSE_TOL:
                 pts = pts[:-1]
             if has_fill and not has_stroke and closed:
