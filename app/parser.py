@@ -85,6 +85,7 @@ ROLE_CUT = "cut"
 ROLE_ENGRAVE = "engrave"
 ROLE_IGNORE = "ignore"
 ORPHAN_DISTANCE = 2.0
+ON_BOUNDARY = 0.02   # mm: a line this close to a piece boundary lies on it
 ENGRAVE_WORDS = ("grav", "engrav", "score", "etch", "ryt", "mark")
 CUT_WORDS = ("cut", "rez", "řez", "řež")
 
@@ -167,9 +168,11 @@ def _to_polygons(pts: list[tuple[float, float]]) -> list[Polygon]:
 
 
 def _even_odd(rings: Iterable[Polygon]) -> list[tuple]:
-    """Group rings into trees; the material of a tree is the even-odd combination of its rings.
+    """Split rings into pieces by nesting depth: a ring at an even depth is the outline of a piece,
+    its direct children (odd depth) are its holes. A ring inside a hole is therefore a separate piece,
+    which is what it is once cut: a loose part.
 
-    Returns (material geometry, outline polygon) per top-level ring.
+    Returns (material geometry, outline polygon) per piece.
     """
     unique: dict[tuple, Polygon] = {}
     for ring in rings:
@@ -178,23 +181,29 @@ def _even_odd(rings: Iterable[Polygon]) -> list[tuple]:
     ordered = sorted(unique.values(), key=lambda r: -r.area)
     points = [r.representative_point() for r in ordered]
 
-    root: list[int] = []
+    parent: list[int | None] = []
+    depth: list[int] = []
     for i, ring in enumerate(ordered):
-        owner = i
-        for j in range(i - 1, -1, -1):
+        found = None
+        for j in range(i - 1, -1, -1):   # the nearest larger ring that contains this one
             if ordered[j].area > ring.area and ordered[j].contains(points[i]):
-                owner = root[j]
+                found = j
                 break
-        root.append(owner)
+        parent.append(found)
+        depth.append(0 if found is None else depth[found] + 1)
+
+    holes: dict[int, list[Polygon]] = {}
+    for i, p in enumerate(parent):
+        if p is not None and depth[i] % 2 == 1:
+            holes.setdefault(p, []).append(Polygon(ordered[i].exterior))
 
     result = []
     for i, ring in enumerate(ordered):
-        if root[i] != i:
+        if depth[i] % 2:
             continue
         geom = Polygon(ring.exterior)
-        for k in range(i + 1, len(ordered)):
-            if root[k] == i:
-                geom = geom.symmetric_difference(Polygon(ordered[k].exterior))
+        for hole in holes.get(i, []):
+            geom = geom.difference(hole)
         result.append((geom, Polygon(ring.exterior)))
     return result
 
@@ -291,9 +300,19 @@ def _assemble(parsed: Parsed, overrides: dict[str, str]) -> tuple[list[dict], in
     tree = STRtree(hulls)
     areas = [h.area for h in hulls]
 
-    def owner(point) -> int | None:
+    bands = [geom.boundary.buffer(ON_BOUNDARY) for geom, _ in pieces]
+
+    def owner(point, line=None) -> int | None:
         hits = tree.query(point, predicate="intersects")
         if len(hits):
+            if line is not None and len(hits) > 1:
+                # a line lying on a piece's own outline or hole belongs to that piece, even when a smaller
+                # neighbour's outline overlaps it (interlocking tabs): pick the piece whose boundary
+                # carries the most of the line
+                share = {int(i): bands[i].intersection(line).length / line.length for i in hits}
+                best = max(share.values())
+                if best > 0.5:
+                    return min((i for i, s in share.items() if s > best - 0.01), key=lambda i: areas[i])
             return int(min(hits, key=lambda i: areas[i]))
         j = int(tree.nearest(point))
         return j if hulls[j].distance(point) <= ORPHAN_DISTANCE else None
@@ -304,7 +323,7 @@ def _assemble(parsed: Parsed, overrides: dict[str, str]) -> tuple[list[dict], in
         ls = _line_string(l)
         if ls.is_empty or ls.length == 0:
             continue
-        idx = owner(ls.interpolate(0.5, normalized=True))
+        idx = owner(ls.interpolate(0.5, normalized=True), ls)
         if idx is None:
             orphans += 1
         else:
