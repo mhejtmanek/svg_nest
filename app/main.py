@@ -209,7 +209,7 @@ class BoxRequest(BaseModel):
     split: bool = True
     max_w: float = Field(default=390, gt=0, le=100000)
     max_h: float = Field(default=390, gt=0, le=100000)
-    knob: float = Field(default=6, ge=1, le=50)
+    pitch: float = Field(default=40, ge=10, le=300)
 
 
 @app.post("/api/box")

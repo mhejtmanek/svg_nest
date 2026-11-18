@@ -130,7 +130,7 @@ The UI uses a small JSON API. All endpoints need the session cookie.
 | `POST /api/upload` | Upload files (multipart `files`). Returns files with detected colours/layers and parts. |
 | `POST /api/files/{id}/roles` | Set `cut` / `engrave` / `ignore` per colour for one file; rebuilds its parts. |
 | `DELETE /api/parts/{id}`, `DELETE /api/parts` | Remove one part, or everything. |
-| `POST /api/box` | Generate a box (JSON: `width`, `depth`, `height`, `thickness`, `finger`, `kerf`, `lid`, `split`, `max_w`, `max_h`, `knob`). Returns a file with its parts and quantities. |
+| `POST /api/box` | Generate a box (JSON: `width`, `depth`, `height`, `thickness`, `finger`, `kerf`, `lid`, `split`, `max_w`, `max_h`, `pitch`). Returns a file with its parts and quantities. |
 | `POST /api/nest` | Start a nesting job. Returns `job_id`. |
 | `GET /api/jobs/{id}` | Progress and, when finished, the result. |
 | `POST /api/jobs/{id}/cancel` | Cancel a job. |

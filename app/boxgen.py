@@ -41,7 +41,7 @@ class BoxParams:
     split: bool = True      # cut panels that exceed max_w x max_h into puzzle-jointed tiles
     max_w: float = 390.0
     max_h: float = 390.0
-    knob: float = 6.0       # radius of the puzzle knob head
+    pitch: float = 40.0     # distance between the knobs of a puzzle joint
 
 
 @dataclass
@@ -86,17 +86,20 @@ def _panel(a: float, b: float, t: float, finger: float, edges: dict[str, tuple[f
     return poly.difference(unary_union(cuts)) if cuts else poly
 
 
+KNOB_SHARE = 0.12   # knob depth is 2 r, its head is 3.4 r wide
+
+
 def _knob(cx: float, cy: float, r: float, direction: tuple[float, float]) -> Polygon:
     """Dovetail knob on a cut line through (cx, cy): neck and round head, growing along `direction`."""
-    neck = rect(-0.45 * r, -0.2 * r, 0.45 * r, 1.4 * r)
-    head = Point(0, 1.6 * r).buffer(r, quad_segs=16)
-    shape = unary_union([neck, head])
+    neck = rect(-0.9 * r, -0.2 * r, 0.9 * r, 1.0 * r)
+    head = affinity.scale(Point(0, 1.0 * r).buffer(r, quad_segs=24), xfact=1.7, yfact=1.0)
+    shape = unary_union([neck, head]).buffer(0.4 * r, quad_segs=12).buffer(-0.4 * r, quad_segs=12)   # rounds the neck
     angle = math.degrees(math.atan2(direction[1], direction[0])) - 90
     return affinity.translate(affinity.rotate(shape, angle, origin=(0, 0)), cx, cy)
 
 
 def _knob_depth(r: float) -> float:
-    return 2.6 * r
+    return 2.0 * r
 
 
 def _fit_orientation(w: float, h: float, mw: float, mh: float, r: float) -> tuple[float, float, int, int]:
@@ -117,7 +120,7 @@ def _split(poly: Polygon, p: BoxParams) -> list[Polygon]:
     mw, mh = p.max_w, p.max_h
     if (w <= mw and h <= mh) or (w <= mh and h <= mw):
         return [poly]
-    r = p.knob
+    r = KNOB_SHARE * p.pitch
     if mw < 10 * r or mh < 10 * r:
         r = max(1.0, min(mw, mh) / 10)
     _, _, cols, rows = _fit_orientation(w, h, mw, mh, r)
@@ -125,6 +128,7 @@ def _split(poly: Polygon, p: BoxParams) -> list[Polygon]:
         raise BoxError("box_too_many_tiles", str(cols * rows))
     col_w, row_h = w / cols, h / rows
     r = min(r, col_w / 12, row_h / 12)
+    pitch = r / KNOB_SHARE
     pad = 10 * r + 1
 
     def region(cuts: list[float], vertical: bool, seg: float, lo: float):
@@ -136,15 +140,16 @@ def _split(poly: Polygon, p: BoxParams) -> list[Polygon]:
             else:
                 side = rect(minx - pad, miny - pad, maxx + pad, pos)
             add, sub = [], []
-            count = rows if vertical else cols
-            for j in range(count):
-                c = lo + (j + 0.5) * seg
-                grow_right = (j + k) % 2 == 0
-                if vertical:
-                    shape = _knob(pos, c, r, (1, 0) if grow_right else (-1, 0))
-                else:
-                    shape = _knob(c, pos, r, (0, 1) if grow_right else (0, -1))
-                (add if grow_right else sub).append(shape)
+            grow_right = k % 2 == 0   # every knob of one cut points the same way
+            for j in range(rows if vertical else cols):
+                n = max(1, round(seg / pitch))
+                for m in range(n):
+                    c = lo + j * seg + (m + 0.5) * seg / n
+                    if vertical:
+                        shape = _knob(pos, c, r, (1, 0) if grow_right else (-1, 0))
+                    else:
+                        shape = _knob(c, pos, r, (0, 1) if grow_right else (0, -1))
+                    (add if grow_right else sub).append(shape)
             a_list.append(unary_union([side, *add]).difference(unary_union(sub)) if sub else unary_union([side, *add]))
         everything = rect(minx - pad, miny - pad, maxx + pad, maxy + pad)
         out, prev = [], None
