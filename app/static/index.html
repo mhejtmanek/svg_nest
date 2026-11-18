@@ -26,6 +26,35 @@
     <div class="space-y-5">
 
       <section class="bg-white rounded-xl shadow p-4">
+        <details>
+          <summary class="font-semibold cursor-pointer" x-text="t('boxTitle')"></summary>
+          <p class="text-sm text-slate-500 mt-2" x-text="t('boxHint')"></p>
+          <div class="grid grid-cols-3 gap-2 mt-3 text-sm">
+            <label class="block"><span x-text="t('boxWidth')"></span><input type="number" min="1" step="any" x-model.number="box.width" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxDepth')"></span><input type="number" min="1" step="any" x-model.number="box.depth" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxHeight')"></span><input type="number" min="1" step="any" x-model.number="box.height" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxThickness')"></span><input type="number" min="0.1" step="any" x-model.number="box.thickness" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxFinger')"></span><input type="number" min="1" step="any" x-model.number="box.finger" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxKerf')"></span><input type="number" min="0" step="any" x-model.number="box.kerf" class="w-full border rounded px-2 py-1"></label>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="box.lid"> <span x-text="t('boxLid')"></span></label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="box.split"> <span x-text="t('boxSplit')"></span></label>
+          </div>
+          <div x-show="box.split" class="grid grid-cols-3 gap-2 mt-3 text-sm items-end">
+            <label class="block"><span x-text="t('boxMaxW')"></span><input type="number" min="40" step="any" x-model.number="box.maxW" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxMaxH')"></span><input type="number" min="40" step="any" x-model.number="box.maxH" class="w-full border rounded px-2 py-1"></label>
+            <label class="block"><span x-text="t('boxKnob')"></span><input type="number" min="1" step="any" x-model.number="box.knob" class="w-full border rounded px-2 py-1"></label>
+            <button @click="boxFromSheet()" class="col-span-3 text-left text-blue-700 hover:underline" x-text="t('boxFromSheet')"></button>
+          </div>
+          <div class="mt-3 flex items-center gap-3">
+            <button @click="addBox()" :disabled="boxBusy" class="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" x-text="t('boxAdd')"></button>
+            <span x-show="boxError" class="text-sm text-red-600" x-text="boxError"></span>
+          </div>
+        </details>
+      </section>
+
+      <section class="bg-white rounded-xl shadow p-4">
         <h2 class="font-semibold mb-3" x-text="t('parts')"></h2>
         <label @dragover.prevent="drag=true" @dragleave.prevent="drag=false" @drop.prevent="drag=false; upload($event.dataTransfer.files)"
                :class="drag ? 'border-blue-500 bg-blue-50' : 'border-slate-300'"
@@ -47,7 +76,7 @@
               <span class="font-normal text-slate-500" x-text="t('pensHint')"></span>
             </div>
             <template x-for="f in files" :key="f.id">
-              <details class="px-3 py-2" :open="f.styles.length > 1">
+              <details x-show="f.styles.length" class="px-3 py-2" :open="f.styles.length > 1">
                 <summary class="cursor-pointer"><b x-text="f.name"></b>
                   <span class="text-slate-500" x-text="t('fileSummary', { parts: f.parts.length, partWord: plural(f.parts.length, 'part'), styles: f.styles.length, styleWord: plural(f.styles.length, 'style') })"></span></summary>
                 <p x-show="f.error" class="text-red-600 mt-1" x-text="f.error"></p>
@@ -282,6 +311,10 @@ const I18N = {
     github: 'Open source na GitHubu',
     subtitle: 'SVG / DXF · FFT konvoluční engine · odřezky a desky různých rozměrů',
     parts: '1. Díly', uploading: 'Nahrávám…', dropzone: 'Přetáhněte sem soubory .svg / .dxf nebo klikněte pro výběr',
+    boxTitle: 'Generátor krabice', boxHint: 'Krabice s čepovými spoji podle vnějších rozměrů. Stěny větší než deska se rozdělí na dílky spojené puzzle spojem. Díly se přidají do seznamu níže.',
+    boxWidth: 'Šířka (mm)', boxDepth: 'Hloubka (mm)', boxHeight: 'Výška (mm)', boxThickness: 'Tloušťka materiálu (mm)', boxFinger: 'Šířka čepu (mm)', boxKerf: 'Kerf laseru (mm)',
+    boxLid: 'Zavřená krabice (s víkem)', boxSplit: 'Rozdělit díly, které se nevejdou na desku', boxMaxW: 'Největší díl – šířka (mm)', boxMaxH: 'Největší díl – výška (mm)', boxKnob: 'Velikost puzzle čepu (mm)',
+    boxFromSheet: 'Vzít velikost z první desky (mínus okraje)', boxAdd: 'Přidat krabici',
     pensTitle: 'Řez / gravírování podle souboru', pensHint: '(barvy a vrstvy se nastavují u každého souboru zvlášť)',
     fileSummary: '– {parts} {partWord}, {styles} {styleWord}',
     'role.cut': 'Řez', 'role.engrave': 'Gravírování', 'role.ignore': 'Ignorovat',
@@ -323,6 +356,7 @@ const I18N = {
     'err.failed': 'Soubor se nepodařilo zpracovat: {detail}',
     'err.no_parts': 'Není co skládat – nahrajte díly (nebo vypršela relace) a nastavte počet kusů',
     'err.bad_rotation': 'Neplatný krok rotace', 'err.bad_strategy': 'Neplatná strategie',
+    'err.box_dims': 'Neplatné rozměry krabice – zkontrolujte rozměry, tloušťku a kerf', 'err.box_finger': 'Čep musí být alespoň 1,5× tloušťka materiálu', 'err.box_too_many_tiles': 'Příliš mnoho dílků – zvětšete největší díl',
     'err.no_shape_roles': 'S tímto nastavením není v souboru žádný řezaný tvar',
     'err.file_not_found': 'Relace vypršela – nahrajte soubory znovu', 'err.job_not_found': 'Relace vypršela – spusťte výpočet znovu',
     'err.invalid': 'Neplatné zadání', 'err.generic': 'Chyba',
@@ -333,6 +367,10 @@ const I18N = {
     github: 'Open source on GitHub',
     subtitle: 'SVG / DXF · FFT convolution engine · offcuts and sheets of different sizes',
     parts: '1. Parts', uploading: 'Uploading…', dropzone: 'Drop .svg / .dxf files here or click to choose',
+    boxTitle: 'Box generator', boxHint: 'A finger-jointed box from its outer size. Panels larger than the sheet are split into tiles that join with a puzzle joint. The parts are added to the list below.',
+    boxWidth: 'Width (mm)', boxDepth: 'Depth (mm)', boxHeight: 'Height (mm)', boxThickness: 'Material thickness (mm)', boxFinger: 'Finger width (mm)', boxKerf: 'Laser kerf (mm)',
+    boxLid: 'Closed box (with lid)', boxSplit: 'Split pieces that do not fit the sheet', boxMaxW: 'Largest piece – width (mm)', boxMaxH: 'Largest piece – height (mm)', boxKnob: 'Puzzle knob size (mm)',
+    boxFromSheet: 'Take the size from the first sheet (minus margins)', boxAdd: 'Add box',
     pensTitle: 'Cut / engrave per file', pensHint: '(colours and layers are set separately for each file)',
     fileSummary: '– {parts} {partWord}, {styles} {styleWord}',
     'role.cut': 'Cut', 'role.engrave': 'Engrave', 'role.ignore': 'Ignore',
@@ -374,6 +412,7 @@ const I18N = {
     'err.failed': 'The file could not be processed: {detail}',
     'err.no_parts': 'Nothing to nest – upload parts (or the session expired) and set their quantities',
     'err.bad_rotation': 'Invalid rotation step', 'err.bad_strategy': 'Invalid strategy',
+    'err.box_dims': 'Invalid box dimensions – check the size, thickness and kerf', 'err.box_finger': 'The finger must be at least 1.5× the material thickness', 'err.box_too_many_tiles': 'Too many tiles – raise the largest piece size',
     'err.no_shape_roles': 'With these settings the file contains no cut shape',
     'err.file_not_found': 'Session expired – upload the files again', 'err.job_not_found': 'Session expired – run the calculation again',
     'err.invalid': 'Invalid input', 'err.generic': 'Error',
@@ -390,6 +429,8 @@ function nesting() {
   return {
     lang: initialLang,
     parts: [], files: [], errors: [], drag: false, uploading: false, bulkQty: 1,
+    box: { width: 200, depth: 150, height: 100, thickness: 3, finger: 12, kerf: 0, lid: true, split: true, maxW: 390, maxH: 390, knob: 6 },
+    boxBusy: false, boxError: '',
     sheets: [mkSheet(400, 400, 1, true)],
     strategy: 'smallest', spacing: 1.5, margin: 5, rotation: 15, resolution: 0.5, optimize: 2, engraveTogether: false,
     running: false, status: '', progress: 0, info: { stage: 'starting' }, error: '', errorKey: null,
@@ -506,6 +547,26 @@ function nesting() {
       } catch (e) {
         this.errors = [{ file: '', code: 'server', detail: e.message }];
       } finally { this.uploading = false; }
+    },
+    boxFromSheet() {
+      const s = this.sheets[0], m = 2 * (+this.margin || 0);
+      if (s) { this.box.maxW = Math.max(40, +s.width - m); this.box.maxH = Math.max(40, +s.height - m); }
+    },
+    async addBox() {
+      const b = this.box;
+      this.boxError = ''; this.boxBusy = true;
+      try {
+        const r = await fetch('/api/box', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ width: +b.width, depth: +b.depth, height: +b.height, thickness: +b.thickness, finger: +b.finger,
+                                 kerf: +b.kerf || 0, lid: !!b.lid, split: !!b.split, max_w: +b.maxW, max_h: +b.maxH, knob: +b.knob }) });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { this.boxError = this.apiError(data); return; }
+        data.parts.forEach(p => this.parts.push(p));
+        this.files.push({ id: data.id, name: data.name, styles: data.styles, warnings: data.warnings, parts: data.parts, error: '' });
+      } catch (e) {
+        this.boxError = e.message;
+      } finally { this.boxBusy = false; }
     },
     async removePart(p) {
       await fetch('/api/parts/' + p.id, { method: 'DELETE' });

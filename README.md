@@ -16,6 +16,7 @@ A self-hosted web app that packs irregular 2D parts from **SVG and DXF** files o
 - **Result viewer** with zoom/pan and a full-screen mode, and a **part viewer** to inspect every imported part up close.
 - **Clean vector export** per sheet as SVG or DXF, or all sheets in one ZIP. Cut and engrave are on their own layers, and the sheet outline is included.
 - The **last sheet is packed column by column from the left**, so the free area on the right stays in one piece and can be reused as an offcut.
+- **Box generator**: a finger-jointed box from its outer size (open or with a lid, laser kerf compensation). A panel larger than the sheet is cut into tiles that join with a puzzle (dovetail) joint, so the box can be bigger than the material. The parts go straight into the part list.
 - Czech and English user interface.
 
 | Input: parts and colour mapping | Part viewer |
@@ -129,6 +130,7 @@ The UI uses a small JSON API. All endpoints need the session cookie.
 | `POST /api/upload` | Upload files (multipart `files`). Returns files with detected colours/layers and parts. |
 | `POST /api/files/{id}/roles` | Set `cut` / `engrave` / `ignore` per colour for one file; rebuilds its parts. |
 | `DELETE /api/parts/{id}`, `DELETE /api/parts` | Remove one part, or everything. |
+| `POST /api/box` | Generate a box (JSON: `width`, `depth`, `height`, `thickness`, `finger`, `kerf`, `lid`, `split`, `max_w`, `max_h`, `knob`). Returns a file with its parts and quantities. |
 | `POST /api/nest` | Start a nesting job. Returns `job_id`. |
 | `GET /api/jobs/{id}` | Progress and, when finished, the result. |
 | `POST /api/jobs/{id}/cancel` | Cancel a job. |
@@ -159,6 +161,7 @@ Example request body for `POST /api/nest`:
 ```
 app/
   parser.py     SVG/DXF import, part assembly, SVG/DXF export
+  boxgen.py     box generator: finger joints, puzzle-jointed tiles
   nester.py     rasterisation, FFT placement, multi-size packing, optimisation
   main.py       FastAPI app: sessions, upload, jobs, downloads
   static/       single-page UI (Tailwind and Alpine.js from a CDN, no build step)

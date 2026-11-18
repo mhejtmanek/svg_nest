@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .boxgen import BoxError, BoxParams, box_parts
 from .nester import NestCancelled, NestParams, NestResult, SheetSpec, nest
 from .parser import (ParseError, Parsed, Part, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE, build_parts, lines_path_d,
                      parse_file, place_part, polygon_path_d, sheet_to_dxf, sheet_to_svg)
@@ -195,6 +196,41 @@ def upload(files: list[UploadFile] = File(...), sess: Session = Depends(get_sess
         _install(sess, src, {}, parts)
         added.append(file_json(src, parts, warnings))
     return {"files": added, "errors": errors}
+
+
+class BoxRequest(BaseModel):
+    width: float = Field(gt=0, le=5000)
+    depth: float = Field(gt=0, le=5000)
+    height: float = Field(gt=0, le=5000)
+    thickness: float = Field(gt=0, le=50)
+    finger: float = Field(default=12, gt=0, le=500)
+    kerf: float = Field(default=0, ge=0, le=50)
+    lid: bool = True
+    split: bool = True
+    max_w: float = Field(default=390, gt=0, le=100000)
+    max_h: float = Field(default=390, gt=0, le=100000)
+    knob: float = Field(default=6, ge=1, le=50)
+
+
+@app.post("/api/box")
+def make_box(req: BoxRequest, sess: Session = Depends(get_session)):
+    """Generate a finger-jointed box (puzzle-jointed tiles where a panel exceeds the sheet) as parts to nest."""
+    try:
+        src = SourceFile(f"box {req.width:g}x{req.depth:g}x{req.height:g}", Parsed([], []))
+        made = box_parts(BoxParams(**req.model_dump()), src.id)
+    except BoxError as exc:
+        raise HTTPException(400, exc.code) from exc
+    with sess.lock:
+        stored = len(sess.parts)
+    if stored + len(made) > MAX_PARTS_PER_SESSION:
+        raise HTTPException(400, "too_many_parts")
+    parts = [p for p, _ in made]
+    _install(sess, src, {}, parts)
+    data = file_json(src, parts, [])
+    quantity = {p.id: q for p, q in made}
+    for pj in data["parts"]:
+        pj["quantity"] = quantity[pj["id"]]
+    return data
 
 
 class RolesRequest(BaseModel):
