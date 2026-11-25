@@ -184,7 +184,7 @@ app/
   nester.py     rasterisation, FFT placement, multi-size packing, optimisation
   main.py       FastAPI app: sessions, upload, jobs, downloads
   static/       single-page UI (Tailwind and Alpine.js from a CDN, no build step)
-examples/       small SVG/DXF files to try it with; examples/xs has an xTool Studio project and SVG exports of its panels
+examples/       small SVG/DXF files to try it with
 docs/           screenshots used in this README
 Dockerfile, docker-compose.yml, requirements.txt
 ```
