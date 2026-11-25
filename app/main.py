@@ -17,9 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .boxgen import BoxError, BoxParams, box_parts
-from .xs import parse_xs
+from .xs import parse_xcs, parse_xs
 from .nester import NestCancelled, NestParams, NestResult, SheetSpec, nest
-from .parser import (ParseError, Parsed, Part, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE, build_parts, lines_path_d,
+from .parser import (ParseError, Parsed, Part, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE, ROLE_SCORE, build_parts, lines_path_d,
                      parse_file, place_part, polygon_path_d, sheet_to_dxf, sheet_to_svg)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -141,7 +141,8 @@ def part_json(part: Part) -> dict:
         "cut_path": lines_path_d(part.cut, 2),
         "engrave_path": lines_path_d(part.engrave, 2),
         "fill_path": " ".join(polygon_path_d(f, 2) for f in part.fills),
-        "has_engrave": bool(part.engrave or part.fills),
+        "score_path": lines_path_d(part.score, 2),
+        "has_engrave": part.engraved,
         "extra_cuts": _extra_cuts(part),
     }
 
@@ -186,8 +187,10 @@ def upload(files: list[UploadFile] = File(...), sess: Session = Depends(get_sess
             errors.append({"file": f.filename, "code": "too_many_parts", "detail": str(MAX_PARTS_PER_SESSION)})
             continue
         try:
-            if (f.filename or "").lower().endswith(".xs"):
-                items = [(c.name, c.parsed, c.skipped) for c in parse_xs(data)]   # one file per canvas
+            lower = (f.filename or "").lower()
+            if lower.endswith((".xs", ".xcs")):   # xTool Studio / Creative Space: one file per canvas
+                canvases = parse_xs(data) if lower.endswith(".xs") else parse_xcs(data, (f.filename or "xtool")[:-4])
+                items = [(c.name, c.parsed, c.skipped) for c in canvases]
             else:
                 items = [(f.filename or "", parse_file(f.filename or "", data), 0)]
             for name, parsed, skipped in items:
@@ -256,7 +259,7 @@ def set_roles(file_id: str, req: RolesRequest, sess: Session = Depends(get_sessi
     src = sess.sources.get(file_id)
     if src is None:
         raise HTTPException(404, "file_not_found")
-    if any(r not in (ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE) for r in req.roles.values()):
+    if any(r not in (ROLE_CUT, ROLE_ENGRAVE, ROLE_SCORE, ROLE_IGNORE) for r in req.roles.values()):
         raise HTTPException(400, "bad_role")
     try:
         parts, warnings = _rebuild(src, req.roles)

@@ -1,6 +1,6 @@
 # True-Shape Nesting
 
-A self-hosted web app that packs irregular 2D parts from **SVG and DXF** files onto sheets of material, built for laser cutters and CNC machines. Parts are packed by their **real outline**, not their bounding box, so small parts drop into the holes and gaps of bigger ones. It keeps **cut** and **engrave** geometry apart, understands **offcuts and sheets of different sizes**, and exports clean vector files.
+A self-hosted web app that packs irregular 2D parts from **SVG and DXF** files onto sheets of material, built for laser cutters and CNC machines. Parts are packed by their **real outline**, not their bounding box, so small parts drop into the holes and gaps of bigger ones. It keeps **cut**, **line (score)** and **engrave** geometry apart, understands **offcuts and sheets of different sizes**, and exports clean vector files.
 
 **Live demo:** <https://nest.mhlaser.cz> (a test instance on a small server, so it may be slow or offline). Uploaded files are kept in memory for up to 6 hours and are not shared with other visitors, but don't upload anything confidential.
 
@@ -8,13 +8,13 @@ A self-hosted web app that packs irregular 2D parts from **SVG and DXF** files o
 
 ## Features
 
-- **Bulk upload** of `.svg`, `.dxf` and xTool Studio `.xs` files by drag and drop. A file with several shapes is split into separate parts.
+- **Bulk upload** of `.svg`, `.dxf` and xTool Studio `.xs` and Creative Space `.xcs` files by drag and drop. A file with several shapes is split into separate parts.
 - **True-shape nesting** with a hybrid vector/raster FFT engine (details [below](#how-it-works)). Holes are kept free, so parts nest inside other parts.
-- **Cut and engrave are separate.** Every colour or layer of every file is mapped to *Cut*, *Engrave* or *Ignore*, with sensible defaults. Open cut lines (fold slits, living hinges) and engraved lines and fills stay attached to their part and move with it.
+- **Cut, line and engrave are separate.** Every colour or layer of every file is mapped to *Cut* (cuts through the material), *Line* (an engraved line, like a cut but with less power), *Engrave* (a filled area) or *Ignore*, with sensible defaults. Open cut lines (fold slits, living hinges), score lines and engraved areas stay attached to their part and move with it.
 - **Sheet inventory** with offcuts: any number of sheet sizes, a quantity or *Auto/∞* for each, and two fill strategies (smallest area first, or your own order).
 - **Parameters:** part spacing (kerf), sheet margin, rotations (none, 90°, 45°, 15°), grid resolution and an optimisation level.
 - **Result viewer** with zoom/pan and a full-screen mode, and a **part viewer** to inspect every imported part up close.
-- **Clean vector export** per sheet as SVG or DXF, or all sheets in one ZIP. Cut and engrave are on their own layers, and the sheet outline is included.
+- **Clean vector export** per sheet as SVG or DXF, or all sheets in one ZIP. Cut, score and engrave are on their own layers, and the sheet outline is included.
 - The **last sheet is packed column by column from the left**, so the free area on the right stays in one piece and can be reused as an offcut.
 - **Box generator**: a finger-jointed box from its outer size (open or with a lid, laser kerf compensation). A panel larger than the sheet is cut into tiles that join with a puzzle (dovetail) joint, so the box can be bigger than the material. The parts go straight into the part list.
 - Czech and English user interface.
@@ -48,7 +48,7 @@ uvicorn app.main:app --reload
 
 ## Using it
 
-1. **Upload parts** (`.svg`, `.dxf`, or an xTool Studio `.xs` project). Each file shows up with the colours and layers found in it. Check the *Cut / Engrave / Ignore* choice per colour and fix it where the default is wrong. The part list shows a thumbnail (cut in red, engraving in blue), the size and the quantity.
+1. **Upload parts** (`.svg`, `.dxf`, or an xTool `.xs` / `.xcs` project). Each file shows up with the colours and layers found in it. Check the *Cut / Line / Engrave / Ignore* choice per colour and fix it where the default is wrong. The part list shows a thumbnail (cut in red, lines in green, engraving in blue), the size and the quantity.
 2. **Define the sheets.** Enter width and height for each sheet or offcut and either a quantity or *Auto ∞* (unlimited, used for the main material). Choose how sheets are filled:
    - *Offcuts first*: the smallest sheets are filled first, unlimited sheets last.
    - *Custom order*: sheets are taken in the order of the table.
@@ -79,7 +79,7 @@ The collapsible **Box generator** panel above the part list builds a finger-join
 
 Identical panels are one part with a quantity: front and back (x2), sides (x2), base and lid (x2, or x1 for an open box). A tile joint repeats small dovetail knobs along its whole length, all pointing the same way. A box can therefore be bigger than the material: the tiles are nested like any other parts and glued or pressed together afterwards.
 
-## How cut and engrave are recognised
+## How cut, line and engrave are recognised
 
 Defaults, per colour or layer. Everything can be overridden in the UI for each file separately.
 
@@ -88,25 +88,27 @@ Defaults, per colour or layer. Everything can be overridden in the UI for each f
 | Red (stroke or DXF colour) | **Cut** |
 | Layer name containing `cut`, `rez` or `řez` | **Cut** |
 | Dark SVG stroke, or a shape without stroke or fill | **Cut** |
-| Any other colour | **Engrave** |
-| Layer name containing `grav`, `engrav`, `score`, `etch`, `ryt` or `mark` | **Engrave** |
+| Any other stroke colour (no fill) | **Line** (score) |
+| Any other colour with a fill | **Engrave** (filled area) |
+| DXF layer name containing `grav`, `engrav`, `score`, `etch`, `ryt` or `mark` | **Line** |
 | DXF `HATCH` | **Engrave** (as a filled area) |
 | White (all channels ≥ 240) | **Ignored**, never shown |
 
 Additional rules:
 
+- Setting a stroke-only colour to *Engrave* fills its closed shapes; setting a filled one to *Line* draws only its outline.
 - If a file contains **no cut at all**, everything in it is treated as cut.
 - A **filled SVG shape without a stroke** is an engraved area when the file also contains stroked cut lines. In a file made only of fills the shapes are the silhouettes to cut.
 - **Closed cut contours** form the outline of a part; contours nested inside it are holes (even-odd rule). **Open cut lines** are never lost: they stay with the part that contains them.
 - Open lines whose ends are within 0.1 mm of each other are joined into closed outlines.
-- **xTool Studio projects (`.xs`)**: every canvas (panel) becomes its own file with its parts. Cut and engrave come from the processing bound to each path in the project (*Vector cutting* is cut, *Vector engraving* and fill/bitmap engraving are engrave), not from the colour. Text and images are skipped.
+- **xTool projects (`.xs` from xTool Studio, `.xcs` from Creative Space)**: every canvas (panel) becomes its own file with its parts. Roles come from the processing bound to each path in the project (*Vector cutting* is cut, *Vector engraving* is a line, fill and bitmap engraving are engrave), not from the colour. An `.xcs` file marks every outline as vector engraving until it is changed, so there a red or dark outline without a fill is taken as cut. Text and images are skipped.
 - DXF units are read from `$INSUNITS`. SVG is converted to millimetres through the viewBox and 96 px per inch.
 
 ## Output
 
 - **Units:** millimetres. **Origin:** the bottom-left corner of the sheet, y pointing up.
-- **SVG** has the layers `SHEET`, `ENGRAVE` and `CUT` (Inkscape layers). Coordinates are y-up and the layers carry a flipping `transform` so the picture is not mirrored.
-- **DXF** (R2010, units mm) has the layers `SHEET` (grey), `ENGRAVE` (blue) and `CUT` (red). Contours are closed `LWPOLYLINE`s. Engraved areas are written both as `HATCH` entities and as plain boundary polylines, because many laser programs ignore `HATCH`.
+- **SVG** has the layers `SHEET`, `ENGRAVE`, `SCORE` and `CUT` (Inkscape layers). Coordinates are y-up and the layers carry a flipping `transform` so the picture is not mirrored.
+- **DXF** (R2010, units mm) has the layers `SHEET` (grey), `ENGRAVE` (blue), `SCORE` (green) and `CUT` (red). Contours are closed `LWPOLYLINE`s. Engraved areas are written both as `HATCH` entities and as plain boundary polylines, because many laser programs ignore `HATCH`.
 - Output geometry is the imported geometry moved and rotated by the computed transform. Curves are flattened to polylines (about 0.02–0.03 mm deviation); nothing is rasterised.
 
 ## How it works
@@ -145,8 +147,8 @@ The UI uses a small JSON API. All endpoints need the session cookie.
 
 | Method and path | Purpose |
 | --- | --- |
-| `POST /api/upload` | Upload `.svg`, `.dxf` or `.xs` files (multipart `files`). Returns files with detected colours/layers and parts; an `.xs` project yields one file per canvas. |
-| `POST /api/files/{id}/roles` | Set `cut` / `engrave` / `ignore` per colour for one file; rebuilds its parts. |
+| `POST /api/upload` | Upload `.svg`, `.dxf`, `.xs` or `.xcs` files (multipart `files`). Returns files with detected colours/layers and parts; an `.xs` project yields one file per canvas. |
+| `POST /api/files/{id}/roles` | Set `cut` / `score` / `engrave` / `ignore` per colour for one file; rebuilds its parts. |
 | `DELETE /api/parts/{id}`, `DELETE /api/parts` | Remove one part, or everything. |
 | `POST /api/box` | Generate a box (JSON: `width`, `depth`, `height`, `thickness`, `finger`, `kerf`, `lid`, `split`, `max_w`, `max_h`, `pitch`). Returns a file with its parts and quantities. |
 | `POST /api/nest` | Start a nesting job. Returns `job_id`. |
@@ -179,7 +181,7 @@ Example request body for `POST /api/nest`:
 ```
 app/
   parser.py     SVG/DXF import, part assembly, SVG/DXF export
-  xs.py         xTool Studio .xs project import
+  xs.py         xTool Studio .xs and Creative Space .xcs project import
   boxgen.py     box generator: finger joints, puzzle-jointed tiles
   nester.py     rasterisation, FFT placement, multi-size packing, optimisation
   main.py       FastAPI app: sessions, upload, jobs, downloads

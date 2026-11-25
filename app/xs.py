@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import zipfile
 from dataclasses import dataclass
 
 from svgelements import Matrix, Path
 
-from .parser import (PX_TO_MM, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE, Linework, ParseError, Parsed, _collect,
+from .parser import (PX_TO_MM, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE, ROLE_SCORE, Linework, ParseError, Parsed, _collect,
                      _flatten_svg_subpath, _hex, _is_dark, _is_red, _is_white, color_name)
 
 MAX_UNCOMPRESSED = 150 * 1024 * 1024      # declared size of everything inside the archive
@@ -112,7 +113,8 @@ def parse_xs(data: bytes) -> list[XsCanvas]:
     return out
 
 
-def _canvas(displays: list[dict], vectors: dict[str, str], types: dict[str, str], ignored: set[str]) -> tuple[Parsed, int]:
+def _canvas(displays: list[dict], vectors: dict[str, str], types: dict[str, str], ignored: set[str],
+            by_colour: bool = False) -> tuple[Parsed, int]:
     lines: list[Linework] = []
     hatch: list[Linework] = []
     skipped = 0
@@ -134,27 +136,89 @@ def _canvas(displays: list[dict], vectors: dict[str, str], types: dict[str, str]
         ptype = types.get(el.get("id"), "")
         color = str(el.get("layerColor") or el.get("originColor") or "#000000")
         rgb = tuple(int(color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) if len(color.lstrip("#")) == 6 else (0, 0, 0)
+        fill = (el.get("fill") or {}).get("visible")
         if el.get("id") in ignored or _is_white(rgb):
             role = ROLE_IGNORE
         elif ptype == "VECTOR_CUTTING":
             role = ROLE_CUT
+        elif ptype == "VECTOR_ENGRAVING":      # a line engraved with less power than a cut
+            # .xcs files default every outline to this until it is changed, so there the colour decides
+            role = ROLE_CUT if by_colour and not fill and (_is_red(rgb) or _is_dark(rgb)) else ROLE_SCORE
         elif ptype:
-            role = ROLE_ENGRAVE
+            role = ROLE_ENGRAVE                # fill and bitmap engraving: an area
         else:
-            role = ROLE_CUT if _is_red(rgb) or _is_dark(rgb) else ROLE_ENGRAVE   # not bound to a process
+            role = ROLE_CUT if _is_red(rgb) or _is_dark(rgb) else (ROLE_ENGRAVE if fill else ROLE_SCORE)   # not bound to a process
         hexcolor = _hex(rgb)
         label = PROCESS_LABEL.get(ptype, "")
         style = (f"{hexcolor}|{ptype}", color_name(rgb), hexcolor, label)
-        fill = (el.get("fill") or {}).get("visible")
         for sub in path.as_subpaths():
             pts, is_closed = _flatten_svg_subpath(sub)
             closed = (is_closed or bool(el.get("isClosePath"))) and len(pts) >= 3
             if closed and abs(pts[0][0] - pts[-1][0]) + abs(pts[0][1] - pts[-1][1]) < CLOSE_TOL:
                 pts = pts[:-1]
             if closed and len(pts) >= 3:
-                if role == ROLE_ENGRAVE and fill:
+                filled = role == ROLE_ENGRAVE and bool(fill)
+                if filled:
                     hatch.append(Linework(pts, True, role, style, group))
-                lines.append(Linework(pts, True, role, style))
+                lines.append(Linework(pts, True, role, style, filled=filled))
             else:
                 _collect(pts, role, style, lines)
     return Parsed(lines, hatch), skipped
+
+
+def parse_xcs(data: bytes, project_name: str = "xtool") -> list[XsCanvas]:
+    """xTool Creative Space project (.xcs): plain JSON, one entry per canvas, processing in `device.data`."""
+    try:
+        doc = json.loads(data)
+    except ValueError as exc:
+        raise ParseError("invalid_xs") from exc
+    if not isinstance(doc, dict) or not isinstance(doc.get("canvas"), list):
+        raise ParseError("invalid_xs", "canvas")
+    per_canvas = {}
+    try:
+        per_canvas = {k: v for k, v in ((doc.get("device") or {}).get("data") or {}).get("value") or []}
+    except (TypeError, ValueError):
+        pass
+    out: list[XsCanvas] = []
+    total = 0
+    for number, canvas in enumerate(doc["canvas"], 1):
+        displays = canvas.get("displays") or []
+        total += len(displays)
+        if total > MAX_ELEMENTS:
+            raise ParseError("xs_too_big")
+        types: dict[str, str] = {}
+        ignored: set[str] = set()
+        for eid, cfg in (((per_canvas.get(canvas.get("id")) or {}).get("displays") or {}).get("value") or []):
+            types[eid] = cfg.get("processingType") or ""
+            if cfg.get("processIgnore"):
+                ignored.add(eid)
+        placed = []
+        for el in displays:
+            d = el.get("dPath")
+            if not d:
+                placed.append(el)      # counted as skipped
+                continue
+            try:
+                placed.append({**el, "transform": _xcs_matrix(d, el)})
+            except Exception:
+                placed.append({k: v for k, v in el.items() if k != "dPath"})
+        parsed, skipped = _canvas(placed, {}, types, ignored, by_colour=True)
+        if parsed.lines:
+            out.append(XsCanvas(f"{project_name} panel {number}.xcs", parsed, skipped))
+    if not out:
+        raise ParseError("no_shape")
+    return out
+
+
+def _xcs_matrix(d: str, el: dict) -> list[float]:
+    """Element placement. The path is shifted so its bounding box starts at the display origin, then it gets
+    the display's scale, rotation and skew (the editor's matrix: a skew of pi flips the y axis, which is how
+    the bottom edge ends up at y) and the origin is moved to (x, y), all in mm."""
+    x0, y0, _, _ = Path(d).bbox()
+    sx, sy = float(el["scale"]["x"]), float(el["scale"]["y"])
+    skew = el.get("skew") or {}
+    rot = math.radians(float(el.get("angle") or 0))
+    skx, sky = float(skew.get("x") or 0), float(skew.get("y") or 0)
+    a, b = math.cos(rot + sky) * sx, math.sin(rot + sky) * sx
+    c, dd = -math.sin(rot - skx) * sy, math.cos(rot - skx) * sy
+    return [a, b, c, dd, float(el["x"]) - a * x0 - c * y0, float(el["y"]) - b * x0 - dd * y0]

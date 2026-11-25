@@ -57,8 +57,9 @@ class Part:
     source: str
     polygon: Polygon | MultiPolygon          # material outline used for nesting
     cut: list[LineString] = field(default_factory=list)       # every cut line (outline, holes, slits)
-    engrave: list[LineString] = field(default_factory=list)   # engraved lines
+    engrave: list[LineString] = field(default_factory=list)   # outlines of engraved areas
     fills: list[Polygon | MultiPolygon] = field(default_factory=list)  # engraved areas (hatch)
+    score: list[LineString] = field(default_factory=list)     # engraved lines (low power, no cut-through)
     file_id: str = ""
 
     @property
@@ -75,7 +76,7 @@ class Part:
 
     @property
     def engraved(self) -> bool:
-        return bool(self.engrave or self.fills)
+        return bool(self.engrave or self.fills or self.score)
 
 
 # --------------------------------------------------------------------------- #
@@ -83,7 +84,8 @@ class Part:
 # --------------------------------------------------------------------------- #
 
 ROLE_CUT = "cut"
-ROLE_ENGRAVE = "engrave"
+ROLE_ENGRAVE = "engrave"      # engraved area (fill)
+ROLE_SCORE = "score"          # engraved line: like a cut, with less power
 ROLE_IGNORE = "ignore"
 ORPHAN_DISTANCE = 2.0
 ON_BOUNDARY = 0.02   # mm: a line this close to a piece boundary lies on it
@@ -98,6 +100,7 @@ class Linework:
     role: str
     style: tuple[str, str, str, str] = ("", "", "", "")   # (key, colour name, #rrggbb, layer) for per-file role mapping
     group: int = 0   # hatch rings of one HATCH entity share a group (even-odd is applied per entity)
+    filled: bool = False   # a closed outline whose area is already in the hatch list
 
 
 @dataclass
@@ -273,12 +276,17 @@ def _apply_roles(items: list[Linework], overrides: dict[str, str]) -> list[Linew
 def _assemble(parsed: Parsed, overrides: dict[str, str]) -> tuple[list[dict], int]:
     """Turn classified linework into pieces: material outline plus every cut/engrave line belonging to it."""
     lines = _apply_roles(parsed.lines, overrides)
-    hatch_groups: dict[int, list[list[tuple[float, float]]]] = {}
+    hatch_groups: dict = {}
     for l in _apply_roles(parsed.hatch, overrides):
         if l.role == ROLE_ENGRAVE:
             hatch_groups.setdefault(l.group, []).append(l.pts)
+        elif l.role == ROLE_SCORE:   # an area drawn as a line only: its boundary
+            lines.append(replace(l, closed=True))
     if not overrides and not any(l.role == ROLE_CUT for l in lines):
         lines = [replace(l, role=ROLE_CUT) for l in lines]  # nothing marked as cut: treat everything as cut
+    for l in lines:   # an area marked "engrave" without a fill of its own is filled in
+        if l.role == ROLE_ENGRAVE and l.closed and not l.filled and len(l.pts) >= 3:
+            hatch_groups.setdefault(f"ring|{l.style[0]}", []).append(l.pts)
 
     rings: list[Polygon] = []
     open_cut: list[LineString] = []
@@ -318,7 +326,7 @@ def _assemble(parsed: Parsed, overrides: dict[str, str]) -> tuple[list[dict], in
         j = int(tree.nearest(point))
         return j if hulls[j].distance(point) <= ORPHAN_DISTANCE else None
 
-    out = [{"polygon": geom, "cut": [], "engrave": [], "fills": []} for geom, _ in pieces]
+    out = [{"polygon": geom, "cut": [], "engrave": [], "fills": [], "score": []} for geom, _ in pieces]
     orphans = 0
     for l in lines:
         ls = _line_string(l)
@@ -328,7 +336,7 @@ def _assemble(parsed: Parsed, overrides: dict[str, str]) -> tuple[list[dict], in
         if idx is None:
             orphans += 1
         else:
-            out[idx]["cut" if l.role == ROLE_CUT else "engrave"].append(ls)
+            out[idx]["cut" if l.role == ROLE_CUT else "score" if l.role == ROLE_SCORE else "engrave"].append(ls)
 
     for group in hatch_groups.values():
         # details of an engraved area (eyes, dots) can be far smaller than a part
@@ -389,7 +397,7 @@ def _svg_style(el) -> tuple[str, tuple[str, str, str, str], bool, bool]:
     if _is_white(rgb):
         role = ROLE_IGNORE
     else:
-        role = ROLE_CUT if _is_red(rgb) or _is_dark(rgb) else ROLE_ENGRAVE
+        role = ROLE_CUT if _is_red(rgb) or _is_dark(rgb) else (ROLE_ENGRAVE if has_fill else ROLE_SCORE)
     return role, (color, color_name(rgb), color, ""), has_stroke, has_fill
 
 
@@ -422,9 +430,10 @@ def parse_svg(data: bytes) -> Parsed:
                 fill_only.append((pts, closed, role, style, group))      # decided below, needs the whole file
                 continue
             if closed:
-                if role == ROLE_ENGRAVE and has_fill:
+                filled = role == ROLE_ENGRAVE and has_fill
+                if filled:
                     hatch.append(Linework(pts, True, role, style, group))
-                lines.append(Linework(pts, True, role, style))
+                lines.append(Linework(pts, True, role, style, filled=filled))
             else:
                 _collect(pts, role, style, lines)
 
@@ -475,11 +484,11 @@ def _dxf_style(e, doc, inherited) -> tuple[str, tuple[str, str, str]]:
     if _is_white(rgb):
         role = ROLE_IGNORE  # white = areas left after engraving, they drop out
     elif any(w in name for w in ENGRAVE_WORDS):
-        role = ROLE_ENGRAVE
+        role = ROLE_SCORE
     elif any(w in name for w in CUT_WORDS):
         role = ROLE_CUT
     else:
-        role = ROLE_CUT if _is_red(rgb) else ROLE_ENGRAVE
+        role = ROLE_CUT if _is_red(rgb) else ROLE_SCORE
     return role, (f"{layer}|{color}", cname, color, layer)
 
 
@@ -575,6 +584,7 @@ def build_parts(filename: str, parsed: Parsed, overrides: dict[str, str] | None 
             cut=[shift(g) for g in piece["cut"]],
             engrave=[shift(g) for g in piece["engrave"]],
             fills=[shift(g) for g in piece["fills"]],
+            score=[shift(g) for g in piece["score"]],
         ))
     warnings = [{"code": "orphans", "file": filename, "count": orphans}] if orphans else []
     return parts, warnings
@@ -596,6 +606,7 @@ class PlacedPart:
     cut: list[LineString]
     engrave: list[LineString]
     fills: list
+    score: list[LineString] = field(default_factory=list)
 
 
 def place_part(part: Part, angle: float, tx: float, ty: float, name: str | None = None) -> PlacedPart:
@@ -603,7 +614,8 @@ def place_part(part: Part, angle: float, tx: float, ty: float, name: str | None 
         return transform_polygon(g, angle, tx, ty)
 
     return PlacedPart(name or part.name, move(part.polygon), [move(g) for g in part.cut],
-                      [move(g) for g in part.engrave], [move(g) for g in part.fills])
+                      [move(g) for g in part.engrave], [move(g) for g in part.fills],
+                      [move(g) for g in part.score])
 
 
 def _polygons(geom) -> list[Polygon]:
@@ -676,6 +688,13 @@ def sheet_to_svg(width: float, height: float, items: list[PlacedPart], preview: 
             out.append(f'<path d="{lines_path_d([up(g) for g in item.engrave])}"/>')
     out.append("</g>")
 
+    out.append(f'<g id="SCORE" {flip} inkscape:groupmode="layer" inkscape:label="SCORE" stroke="#00a000" '
+               f'stroke-width="{sw}" fill="none">')
+    for item in items:
+        if item.score:
+            out.append(f'<path d="{lines_path_d([up(g) for g in item.score])}"/>')
+    out.append("</g>")
+
     out.append(f'<g id="CUT" {flip} inkscape:groupmode="layer" inkscape:label="CUT" stroke="#ff0000" stroke-width="{sw}" fill="none">')
     for item in items:
         if item.cut:
@@ -689,6 +708,7 @@ def sheet_to_dxf(width: float, height: float, items: list[PlacedPart]) -> bytes:
     doc.units = 4
     doc.layers.add("SHEET", color=8)
     doc.layers.add("ENGRAVE", color=5)
+    doc.layers.add("SCORE", color=3)
     doc.layers.add("CUT", color=1)
     msp = doc.modelspace()
     msp.add_lwpolyline([(0, 0), (width, 0), (width, height), (0, height)], close=True, dxfattribs={"layer": "SHEET"})
@@ -714,6 +734,8 @@ def sheet_to_dxf(width: float, height: float, items: list[PlacedPart]) -> bytes:
                     hatch.paths.add_polyline_path(flip(list(hole.coords)[:-1]), is_closed=True)
         for ls in item.engrave:
             add_line(ls, "ENGRAVE")
+        for ls in item.score:
+            add_line(ls, "SCORE")
         for ls in item.cut:
             add_line(ls, "CUT")
     stream = io.StringIO()
