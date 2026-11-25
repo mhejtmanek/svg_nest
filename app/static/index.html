@@ -59,7 +59,7 @@
         <label @dragover.prevent="drag=true" @dragleave.prevent="drag=false" @drop.prevent="drag=false; upload($event.dataTransfer.files)"
                :class="drag ? 'border-blue-500 bg-blue-50' : 'border-slate-300'"
                class="block border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-slate-50">
-          <input type="file" multiple accept=".svg,.dxf" class="hidden" @change="upload($event.target.files); $event.target.value=''">
+          <input type="file" multiple accept=".svg,.dxf,.xs" class="hidden" @change="upload($event.target.files); $event.target.value=''">
           <span class="text-slate-600" x-text="uploading ? t('uploading') : t('dropzone')"></span>
         </label>
         <template x-for="w in allWarnings" :key="w.file + w.code + w.count">
@@ -310,7 +310,7 @@ const I18N = {
   cs: {
     github: 'Open source na GitHubu',
     subtitle: 'SVG / DXF · FFT konvoluční engine · odřezky a desky různých rozměrů',
-    parts: '1. Díly', uploading: 'Nahrávám…', dropzone: 'Přetáhněte sem soubory .svg / .dxf nebo klikněte pro výběr',
+    parts: '1. Díly', uploading: 'Nahrávám…', dropzone: 'Přetáhněte sem soubory .svg / .dxf / .xs (xTool Studio) nebo klikněte pro výběr',
     boxTitle: 'Generátor krabice', boxHint: 'Krabice s čepovými spoji podle vnějších rozměrů. Stěny větší než deska se rozdělí na dílky spojené puzzle spojem. Díly se přidají do seznamu níže.',
     boxWidth: 'Šířka (mm)', boxDepth: 'Hloubka (mm)', boxHeight: 'Výška (mm)', boxThickness: 'Tloušťka materiálu (mm)', boxFinger: 'Šířka čepu (mm)', boxKerf: 'Kerf laseru (mm)',
     boxLid: 'Zavřená krabice (s víkem)', boxSplit: 'Rozdělit díly, které se nevejdou na desku', boxMaxW: 'Největší díl – šířka (mm)', boxMaxH: 'Největší díl – výška (mm)', boxKnob: 'Rozteč puzzle spoje (mm)',
@@ -347,11 +347,13 @@ const I18N = {
     fill: 'Výplň', noStroke: 'bez tahu (výplň)',
     color: { black: 'černá', gray: 'šedá', white: 'bílá', brown: 'hnědá', red: 'červená', orange: 'oranžová', yellow: 'žlutá',
              green: 'zelená', cyan: 'azurová', blue: 'modrá', violet: 'fialová', magenta: 'purpurová' },
+    'warn.xs_skipped': '{count} prvků (text, obrázky) se nepřenáší a byly vynechány',
     'warn.orphans': '{count} čar/výplní leží mimo jakýkoli díl a byly vynechány',
     'err.too_many_files': 'Příliš mnoho souborů najednou – nahrajte je po menších dávkách', 'err.too_large': 'Soubor je příliš velký (limit {detail} MB)',
     'err.too_many_parts': 'Dosažen limit počtu dílů ({detail}) – smažte některé díly', 'err.too_many_pieces': 'Příliš mnoho kusů v jednom výpočtu – snižte počty kusů',
     'err.invalid_svg': 'Neplatné SVG: {detail}', 'err.invalid_dxf': 'Neplatné DXF: {detail}',
     'err.unsupported': 'Podporované jsou pouze soubory .svg a .dxf',
+    'err.invalid_xs': 'Neplatný soubor .xs (projekt xTool Studio)', 'err.xs_too_big': 'Projekt .xs je příliš rozsáhlý',
     'err.no_shape': 'V souboru nebyl nalezen žádný uzavřený řezaný tvar',
     'err.failed': 'Soubor se nepodařilo zpracovat: {detail}',
     'err.no_parts': 'Není co skládat – nahrajte díly (nebo vypršela relace) a nastavte počet kusů',
@@ -360,13 +362,13 @@ const I18N = {
     'err.no_shape_roles': 'S tímto nastavením není v souboru žádný řezaný tvar',
     'err.file_not_found': 'Relace vypršela – nahrajte soubory znovu', 'err.job_not_found': 'Relace vypršela – spusťte výpočet znovu',
     'err.invalid': 'Neplatné zadání', 'err.generic': 'Chyba',
-    'err.sheetSize': 'Rozměry desek musí být kladné.', 'err.pickFiles': 'Vyberte soubory .svg nebo .dxf',
+    'err.sheetSize': 'Rozměry desek musí být kladné.', 'err.pickFiles': 'Vyberte soubory .svg, .dxf nebo .xs',
     'err.server': 'Server vrátil chybu {detail}',
   },
   en: {
     github: 'Open source on GitHub',
     subtitle: 'SVG / DXF · FFT convolution engine · offcuts and sheets of different sizes',
-    parts: '1. Parts', uploading: 'Uploading…', dropzone: 'Drop .svg / .dxf files here or click to choose',
+    parts: '1. Parts', uploading: 'Uploading…', dropzone: 'Drop .svg / .dxf / .xs (xTool Studio) files here or click to choose',
     boxTitle: 'Box generator', boxHint: 'A finger-jointed box from its outer size. Panels larger than the sheet are split into tiles that join with a puzzle joint. The parts are added to the list below.',
     boxWidth: 'Width (mm)', boxDepth: 'Depth (mm)', boxHeight: 'Height (mm)', boxThickness: 'Material thickness (mm)', boxFinger: 'Finger width (mm)', boxKerf: 'Laser kerf (mm)',
     boxLid: 'Closed box (with lid)', boxSplit: 'Split pieces that do not fit the sheet', boxMaxW: 'Largest piece – width (mm)', boxMaxH: 'Largest piece – height (mm)', boxKnob: 'Puzzle joint pitch (mm)',
@@ -403,11 +405,13 @@ const I18N = {
     fill: 'Fill', noStroke: 'no stroke (fill)',
     color: { black: 'black', gray: 'gray', white: 'white', brown: 'brown', red: 'red', orange: 'orange', yellow: 'yellow',
              green: 'green', cyan: 'cyan', blue: 'blue', violet: 'violet', magenta: 'magenta' },
+    'warn.xs_skipped': '{count} elements (text, images) are not imported and were skipped',
     'warn.orphans': '{count} lines/fills lie outside any part and were skipped',
     'err.too_many_files': 'Too many files at once – upload them in smaller batches', 'err.too_large': 'File is too large (limit {detail} MB)',
     'err.too_many_parts': 'Part limit reached ({detail}) – remove some parts', 'err.too_many_pieces': 'Too many pieces in one run – lower the quantities',
     'err.invalid_svg': 'Invalid SVG: {detail}', 'err.invalid_dxf': 'Invalid DXF: {detail}',
     'err.unsupported': 'Only .svg and .dxf files are supported',
+    'err.invalid_xs': 'Invalid .xs file (xTool Studio project)', 'err.xs_too_big': 'The .xs project is too large',
     'err.no_shape': 'No closed cut shape was found in the file',
     'err.failed': 'The file could not be processed: {detail}',
     'err.no_parts': 'Nothing to nest – upload parts (or the session expired) and set their quantities',
@@ -416,7 +420,7 @@ const I18N = {
     'err.no_shape_roles': 'With these settings the file contains no cut shape',
     'err.file_not_found': 'Session expired – upload the files again', 'err.job_not_found': 'Session expired – run the calculation again',
     'err.invalid': 'Invalid input', 'err.generic': 'Error',
-    'err.sheetSize': 'Sheet dimensions must be positive.', 'err.pickFiles': 'Choose .svg or .dxf files',
+    'err.sheetSize': 'Sheet dimensions must be positive.', 'err.pickFiles': 'Choose .svg, .dxf or .xs files',
     'err.server': 'Server returned error {detail}',
   },
 };
@@ -525,7 +529,7 @@ function nesting() {
     move(i, d) { const [s] = this.sheets.splice(i, 1); this.sheets.splice(i + d, 0, s); },
 
     async upload(fileList) {
-      const files = Array.from(fileList).filter(f => /\.(svg|dxf)$/i.test(f.name));
+      const files = Array.from(fileList).filter(f => /\.(svg|dxf|xs)$/i.test(f.name));
       this.errors = [];
       if (!files.length) { this.errors = [{ file: '', code: 'pickFiles' }]; return; }
       this.uploading = true;

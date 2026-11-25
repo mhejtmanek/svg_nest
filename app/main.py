@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .boxgen import BoxError, BoxParams, box_parts
+from .xs import parse_xs
 from .nester import NestCancelled, NestParams, NestResult, SheetSpec, nest
 from .parser import (ParseError, Parsed, Part, ROLE_CUT, ROLE_ENGRAVE, ROLE_IGNORE, build_parts, lines_path_d,
                      parse_file, place_part, polygon_path_d, sheet_to_dxf, sheet_to_svg)
@@ -185,16 +186,29 @@ def upload(files: list[UploadFile] = File(...), sess: Session = Depends(get_sess
             errors.append({"file": f.filename, "code": "too_many_parts", "detail": str(MAX_PARTS_PER_SESSION)})
             continue
         try:
-            src = SourceFile(f.filename or "", parse_file(f.filename or "", data))
-            parts, warnings = _rebuild(src, {})
+            if (f.filename or "").lower().endswith(".xs"):
+                items = [(c.name, c.parsed, c.skipped) for c in parse_xs(data)]   # one file per canvas
+            else:
+                items = [(f.filename or "", parse_file(f.filename or "", data), 0)]
+            for name, parsed, skipped in items:
+                try:
+                    src = SourceFile(name, parsed)
+                    parts, warnings = _rebuild(src, {})
+                except ParseError as exc:   # one canvas without a cut shape must not drop the others
+                    errors.append({"file": name, "code": exc.code, "detail": exc.detail})
+                    continue
+                with sess.lock:
+                    if len(sess.parts) + len(parts) > MAX_PARTS_PER_SESSION:
+                        errors.append({"file": name, "code": "too_many_parts", "detail": str(MAX_PARTS_PER_SESSION)})
+                        continue
+                if skipped:
+                    warnings.append({"code": "xs_skipped", "file": name, "count": skipped})
+                _install(sess, src, {}, parts)
+                added.append(file_json(src, parts, warnings))
         except ParseError as exc:
             errors.append({"file": f.filename, "code": exc.code, "detail": exc.detail})
-            continue
         except Exception as exc:  # malformed input must not break the batch
             errors.append({"file": f.filename, "code": "failed", "detail": str(exc)})
-            continue
-        _install(sess, src, {}, parts)
-        added.append(file_json(src, parts, warnings))
     return {"files": added, "errors": errors}
 
 

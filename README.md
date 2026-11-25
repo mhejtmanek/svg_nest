@@ -8,7 +8,7 @@ A self-hosted web app that packs irregular 2D parts from **SVG and DXF** files o
 
 ## Features
 
-- **Bulk upload** of `.svg` and `.dxf` files by drag and drop. A file with several shapes is split into separate parts.
+- **Bulk upload** of `.svg`, `.dxf` and xTool Studio `.xs` files by drag and drop. A file with several shapes is split into separate parts.
 - **True-shape nesting** with a hybrid vector/raster FFT engine (details [below](#how-it-works)). Holes are kept free, so parts nest inside other parts.
 - **Cut and engrave are separate.** Every colour or layer of every file is mapped to *Cut*, *Engrave* or *Ignore*, with sensible defaults. Open cut lines (fold slits, living hinges) and engraved lines and fills stay attached to their part and move with it.
 - **Sheet inventory** with offcuts: any number of sheet sizes, a quantity or *Auto/∞* for each, and two fill strategies (smallest area first, or your own order).
@@ -82,6 +82,7 @@ Additional rules:
 - A **filled SVG shape without a stroke** is an engraved area when the file also contains stroked cut lines. In a file made only of fills the shapes are the silhouettes to cut.
 - **Closed cut contours** form the outline of a part; contours nested inside it are holes (even-odd rule). **Open cut lines** are never lost: they stay with the part that contains them.
 - Open lines whose ends are within 0.1 mm of each other are joined into closed outlines.
+- **xTool Studio projects (`.xs`)**: every canvas (panel) becomes its own file with its parts. Cut and engrave come from the processing bound to each path in the project (*Vector cutting* is cut, *Vector engraving* and fill/bitmap engraving are engrave), not from the colour. Text and images are skipped.
 - DXF units are read from `$INSUNITS`. SVG is converted to millimetres through the viewBox and 96 px per inch.
 
 ## Output
