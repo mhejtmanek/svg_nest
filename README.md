@@ -48,7 +48,7 @@ uvicorn app.main:app --reload
 
 ## Using it
 
-1. **Upload parts.** Each file shows up with the colours and layers found in it. Check the *Cut / Engrave / Ignore* choice per colour and fix it where the default is wrong. The part list shows a thumbnail (cut in red, engraving in blue), the size and the quantity.
+1. **Upload parts** (`.svg`, `.dxf`, or an xTool Studio `.xs` project). Each file shows up with the colours and layers found in it. Check the *Cut / Engrave / Ignore* choice per colour and fix it where the default is wrong. The part list shows a thumbnail (cut in red, engraving in blue), the size and the quantity.
 2. **Define the sheets.** Enter width and height for each sheet or offcut and either a quantity or *Auto ∞* (unlimited, used for the main material). Choose how sheets are filled:
    - *Offcuts first*: the smallest sheets are filled first, unlimited sheets last.
    - *Custom order*: sheets are taken in the order of the table.
@@ -61,6 +61,23 @@ uvicorn app.main:app --reload
    - *Optimisation*: 1 fast pass, up to 6 or up to 12 attempts with different part orders and packing directions. The best result is kept: all parts placed, then the fewest sheets, then the weakest sheet before the last one as full as possible.
 4. **Run nesting** and flip through the sheets. A part that fits on no sheet is listed as *Didn't fit*.
 5. **Download** one sheet as SVG or DXF, or everything as a ZIP (`sheet_01_200x300mm.svg`, …).
+
+## Box generator
+
+The collapsible **Box generator** panel above the part list builds a finger-jointed box from its **outer** size and adds its panels to the part list, ready to nest.
+
+| Field | Meaning |
+| --- | --- |
+| Width, depth, height | Outer size of the box in mm |
+| Material thickness | Thickness of the sheet; sets the depth of the fingers |
+| Finger width | Target width of a finger (at least 1.5 times the thickness); the real width is adjusted so a whole number of fingers fits the edge |
+| Laser kerf | Every part is grown by half of it so the joints fit after cutting; `0` for none |
+| Closed box | With a lid, otherwise the top is open |
+| Split pieces that do not fit the sheet | Cuts a panel larger than the largest piece into tiles that join with a **puzzle joint** |
+| Largest piece | Size a tile must fit (default 390 x 390 mm); *Take the size from the first sheet* sets it from the sheet size minus the margins |
+| Puzzle joint pitch | Distance between the dovetail knobs along a joint (default 40 mm) |
+
+Identical panels are one part with a quantity: front and back (x2), sides (x2), base and lid (x2, or x1 for an open box). A tile joint repeats small dovetail knobs along its whole length, all pointing the same way. A box can therefore be bigger than the material: the tiles are nested like any other parts and glued or pressed together afterwards.
 
 ## How cut and engrave are recognised
 
@@ -106,7 +123,7 @@ Additional rules:
 - At most **2 nesting jobs run at the same time**; others wait in a queue. Nesting is CPU heavy: fine grids, 15° rotations and the higher optimisation levels can take a minute or more on large jobs.
 - There is **no authentication**. The app has limits on upload size, files per upload, parts per visitor and pieces per run (see [Configuration](#configuration)), but if you expose it to the internet, put it behind a reverse proxy that adds rate limiting and, if needed, a login.
 - The raster grid makes the spacing a guarantee rather than an exact value: parts are at least the requested distance apart, usually a little more (up to about one grid pixel).
-- Text is not supported in SVG; convert text to paths first.
+- Text is not supported in SVG; convert text to paths first. The same goes for text and images in `.xs` projects, which are skipped. An `.xs` archive may unpack to at most 150 MB.
 - There are no automated tests yet.
 
 ## Configuration
@@ -128,7 +145,7 @@ The UI uses a small JSON API. All endpoints need the session cookie.
 
 | Method and path | Purpose |
 | --- | --- |
-| `POST /api/upload` | Upload files (multipart `files`). Returns files with detected colours/layers and parts. |
+| `POST /api/upload` | Upload `.svg`, `.dxf` or `.xs` files (multipart `files`). Returns files with detected colours/layers and parts; an `.xs` project yields one file per canvas. |
 | `POST /api/files/{id}/roles` | Set `cut` / `engrave` / `ignore` per colour for one file; rebuilds its parts. |
 | `DELETE /api/parts/{id}`, `DELETE /api/parts` | Remove one part, or everything. |
 | `POST /api/box` | Generate a box (JSON: `width`, `depth`, `height`, `thickness`, `finger`, `kerf`, `lid`, `split`, `max_w`, `max_h`, `pitch`). Returns a file with its parts and quantities. |
@@ -162,11 +179,12 @@ Example request body for `POST /api/nest`:
 ```
 app/
   parser.py     SVG/DXF import, part assembly, SVG/DXF export
+  xs.py         xTool Studio .xs project import
   boxgen.py     box generator: finger joints, puzzle-jointed tiles
   nester.py     rasterisation, FFT placement, multi-size packing, optimisation
   main.py       FastAPI app: sessions, upload, jobs, downloads
   static/       single-page UI (Tailwind and Alpine.js from a CDN, no build step)
-examples/       small SVG/DXF files to try it with
+examples/       small SVG/DXF files to try it with; examples/xs has an xTool Studio project and SVG exports of its panels
 docs/           screenshots used in this README
 Dockerfile, docker-compose.yml, requirements.txt
 ```
