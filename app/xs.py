@@ -124,6 +124,11 @@ def _canvas(displays: list[dict], vectors: dict[str, str], types: dict[str, str]
             continue
         d = el.get("dPath") or vectors.get((el.get("vectorRef") or {}).get("vectorHash", ""))
         matrix = el.get("transform")
+        if d and not isinstance(matrix, list) and isinstance(el.get("scale"), dict) and "x" in el and "y" in el:
+            try:   # projects migrated from the old format place elements like .xcs files do
+                matrix = _xcs_matrix(d, el)
+            except Exception:
+                matrix = None
         if not d or not isinstance(matrix, list) or len(matrix) != 6:
             skipped += 1      # text, images and the like
             continue
